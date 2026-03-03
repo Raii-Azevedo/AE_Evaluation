@@ -413,6 +413,7 @@ elif st.session_state.view == "avaliar":
 
         for item in criterios:
             criterio = item["criterio"]
+            st.markdown(f'<p style="font-size:20px; font-weight:600;">{criterio}</p>', unsafe_allow_html=True)
             peso = item["peso"]
             obrigatorio = item["obrigatorio"]
 
