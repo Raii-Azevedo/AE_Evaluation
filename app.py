@@ -115,7 +115,7 @@ elif st.session_state.view == "processo":
         st.rerun()
 
     # Botão fechar processo (apenas se aberto)
-    col_esq, col_dir = st.columns([9, 1])
+    col_esq, col_dir = st.columns([8, 2])
 
     with col_dir:
         if status_processo == "Aberto":
