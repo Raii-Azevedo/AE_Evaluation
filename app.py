@@ -376,13 +376,13 @@ elif st.session_state.view == "avaliar":
     if st.button("Salvar Avaliação"):
 
         cursor.execute("""
-            INSERT INTO avaliacoes
-            (processo_id, candidato_id, nota_final, avaliador, comentario_final)
-            VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO avaliacoes
+        (processo_id, candidato_id, nota_final, avaliador, comentario_final)
+        VALUES (%s, %s, %s, %s, %s)
+        RETURNING id
         """, (processo_id, candidato_id, nota_final, avaliador, comentario_final))
 
-        conn.commit()
-        avaliacao_id = cursor.lastrowid
+        avaliacao_id = cursor.fetchone()[0]
 
         for bloco, criterios in estrutura.items():
             for item in criterios:
