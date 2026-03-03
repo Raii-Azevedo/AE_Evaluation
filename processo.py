@@ -138,7 +138,7 @@ elif st.session_state.processo_id and st.session_state.candidato_id is None:
         WHERE pc.processo_id = %s
         GROUP BY c.id, c.nome, c.email
         ORDER BY 
-            (MAX(a.nota_final) IS NULL) ASC,
+            (MAX(a.nota_final) IS NULL) DESC,
             MAX(a.nota_final) DESC,
             c.nome ASC
     """, (processo_id, processo_id))
