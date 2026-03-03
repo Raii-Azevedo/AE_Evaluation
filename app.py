@@ -413,17 +413,19 @@ elif st.session_state.view == "avaliar":
 
         for item in criterios:
             criterio = item["criterio"]
-            st.markdown(f'<p style="font-size:20px; font-weight:600;">{criterio}</p>', unsafe_allow_html=True)
+            descricao = item.get("descricao", "")  # se tiver descrição
             peso = item["peso"]
             obrigatorio = item["obrigatorio"]
 
             key_nota = "{}_{}".format(bloco, criterio)
             key_just = "just_{}_{}".format(bloco, criterio)
 
-            if key_nota not in st.session_state:
-                st.session_state[key_nota] = 5.0
-            if key_just not in st.session_state:
-                st.session_state[key_just] = ""
+            # Renderizar o critério com estilo
+            st.markdown(f"""
+                <p style="font-size:20px; font-weight:700; margin-bottom:4px;">{criterio}</p>
+                <p style="font-size:14px; color:#D1D5DB; margin:0;">{descricao}</p>
+                <p style="font-size:12px; color:#9CA3AF; margin-top:2px;">Peso: {peso}</p>
+            """, unsafe_allow_html=True)
 
             nota = st.slider(
                 "{} (Peso: {}){}".format(
