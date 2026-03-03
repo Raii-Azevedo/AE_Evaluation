@@ -82,14 +82,14 @@ if st.session_state.view == "home":
     st.divider()
 
     # Listar processos
-    cursor.execute("SELECT id, nome, area, senioridade, status FROM processos ORDER BY id DESC")
+    cursor.execute("SELECT id, nome, area, senioridade, local, status FROM processos ORDER BY id DESC")
     processos = cursor.fetchall()
 
-    for id_p, nome, area, senioridade, status in processos:
+    for id_p, nome, area, senioridade, local, status in processos:
         col1, col2 = st.columns([4,1])
         with col1:
             st.markdown("### {nome}".format(nome=nome))
-            st.caption("{area} | {senioridade} | {status}".format(area=area, senioridade=senioridade, status=status))
+            st.caption("{area} | {senioridade} | {local} | {status}".format(area=area, senioridade=senioridade, local=local, status=status))
         with col2:
             if st.button("Entrar", key=f"entrar_{id_p}"):
                 st.session_state.processo_id = id_p
