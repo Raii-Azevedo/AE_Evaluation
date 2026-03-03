@@ -115,12 +115,15 @@ elif st.session_state.view == "processo":
         st.rerun()
 
     # Botão fechar processo (apenas se aberto)
-    if status_processo == "Aberto":
-        if st.button("Fechar Processo"):
-            cursor.execute("UPDATE processos SET status = %s WHERE id = %s", ("Fechado", processo_id))
-            conn.commit()
-            st.success("Processo fechado! 🔒")
-            st.rerun()
+    col_esq, col_dir = st.columns([9, 1])
+
+    with col_dir:
+        if status_processo == "Aberto":
+            if st.button("Fechar Processo"):
+                cursor.execute("UPDATE processos SET status = %s WHERE id = %s", ("Fechado", processo_id))
+                conn.commit()
+                st.success("Processo fechado! 🔒")
+                st.rerun()
     
     st.divider()
 
