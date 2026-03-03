@@ -66,15 +66,16 @@ if st.session_state.view == "home":
     with st.expander("➕ Criar Novo Processo"):
         nome = st.text_input("Nome do Processo", key="novo_nome_processo")
         area = st.selectbox("Área", ["Analytics Engineer"], key="novo_area_processo")
+        tipo = st.selectbox("Tipo", ["Ampla Concorrência", "Afirnativa: Mulheres Cis e Trans", "Afirmativa: Pessoas Negras", "Afirmativa: LGBTQIAPN+"], key="novo_tipo_processo")
         senioridade = st.selectbox("Senioridade", ["Estágio", "Pleno"], key="novo_senioridade")
         status = st.selectbox("Status", ["Aberto", "Fechado"], key="novo_status")
         local = st.selectbox("Local", ["BRASIL", "LATAM"], key="novo_local_processo")
 
         if st.button("Criar Processo"):
             cursor.execute("""
-                INSERT INTO processos (nome, area, senioridade, status, local)
-                VALUES (%s, %s, %s, %s, %s)
-            """, (nome, area, senioridade, status, local))
+                INSERT INTO processos (nome, area, tipo, senioridade, status, local)
+                VALUES (%s, %s, %s, %s, %s, %s)
+            """, (nome, area, tipo, senioridade, status, local))
             conn.commit()
             st.success("Processo criado!")
             st.rerun()
@@ -82,14 +83,14 @@ if st.session_state.view == "home":
     st.divider()
 
     # Listar processos
-    cursor.execute("SELECT id, nome, area, senioridade, local, status FROM processos ORDER BY id DESC")
+    cursor.execute("SELECT id, nome, area, tipo, senioridade, local, status FROM processos ORDER BY id DESC")
     processos = cursor.fetchall()
 
-    for id_p, nome, area, senioridade, local, status in processos:
+    for id_p, nome, area, tipo, senioridade, local, status in processos:
         col1, col2 = st.columns([4,1])
         with col1:
             st.markdown("### {nome}".format(nome=nome))
-            st.caption("{area} | {senioridade} | {local} | {status}".format(area=area, senioridade=senioridade, local=local, status=status))
+            st.caption("{area} | {tipo} | {senioridade} | {local} | {status}".format(area=area, tipo=tipo, senioridade=senioridade, local=local, status=status))
         with col2:
             if st.button("Entrar", key=f"entrar_{id_p}"):
                 st.session_state.processo_id = id_p

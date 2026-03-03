@@ -19,6 +19,7 @@ def init_db():
         id SERIAL PRIMARY KEY,
         nome TEXT NOT NULL,
         area TEXT,
+        tipo TEXT,
         senioridade TEXT,
         status TEXT,
         local TEXT,
