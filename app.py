@@ -423,21 +423,17 @@ elif st.session_state.view == "avaliar":
             # Renderizar o critério com estilo
             st.markdown(f"""
                 <p style="font-size:20px; font-weight:700; margin-bottom:4px;">{criterio}</p>
-                <p style="font-size:14px; color:#D1D5DB; margin:0;">{descricao}</p>
-                <p style="font-size:12px; color:#9CA3AF; margin-top:2px;">Peso: {peso}</p>
+                <p style="font-size:15px; color:#D1D5DB; margin:0;">{descricao}</p>
+                <p style="font-size:15px; color:#9CA3AF; margin-top:2px;">Peso: {peso}</p>
             """, unsafe_allow_html=True)
 
             nota = st.slider(
-                "{} (Peso: {}){}".format(
-                    criterio,
-                    peso,
-                    " 🔴 Obrigatório" if obrigatorio else ""
-                ),
-                0.0,
-                10.0,
-                st.session_state[key_nota],
-                step=0.5,
-                key=key_nota
+            "🔴 Obrigatório" if obrigatorio else "",
+            0.0,
+            10.0,
+            st.session_state[key_nota],
+            step=0.5,
+            key=key_nota
             )
 
             justificativa = st.text_area(
