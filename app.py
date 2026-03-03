@@ -64,27 +64,20 @@ if st.session_state.view == "home":
     """, unsafe_allow_html=True)
 
     with st.expander("➕ Criar Novo Processo"):
-            nome = st.text_input("Nome do Processo", key="novo_nome_processo")
-            area = st.selectbox("Área", ["Analytics Engineer"], key="novo_area_processo")
-            senioridade = st.selectbox("Senioridade", ["Estágio", "Pleno"], key="novo_senioridade")
-            status = st.selectbox("Status", ["Aberto", "Fechado"], key="novo_status")
-            local = st.selectbox("Local", ["BRASIL", "LATAM"], key="novo_local_processo")
+        nome = st.text_input("Nome do Processo", key="novo_nome_processo")
+        area = st.selectbox("Área", ["Analytics Engineer"], key="novo_area_processo")
+        senioridade = st.selectbox("Senioridade", ["Estágio", "Pleno"], key="novo_senioridade")
+        status = st.selectbox("Status", ["Aberto", "Fechado"], key="novo_status")
+        local = st.selectbox("Local", ["BRASIL", "LATAM"], key="novo_local_processo")
 
-            if st.button("Criar Processo"):
-                cursor.execute("""
-                    INSERT INTO processos (nome, area, senioridade, status, local)
-                    VALUES (%s, %s, %s, %s, %s)
-                """, (nome, area, senioridade, status, local))
-                conn.commit()
-                st.success("Processo criado!")
-
-                # Reset seguro dos inputs
-                st.session_state["novo_nome_processo"] = ""
-                st.session_state["novo_area_processo"] = "Analytics Engineer"
-                st.session_state["novo_senioridade"] = "Estágio"
-                st.session_state["novo_status"] = "Aberto"
-                st.session_state["novo_local_processo"] = "BRASIL"
-                st.rerun()
+        if st.button("Criar Processo"):
+            cursor.execute("""
+                INSERT INTO processos (nome, area, senioridade, status, local)
+                VALUES (%s, %s, %s, %s, %s)
+            """, (nome, area, senioridade, status, local))
+            conn.commit()
+            st.success("Processo criado!")
+            st.rerun()
 
     st.divider()
 
@@ -144,8 +137,12 @@ elif st.session_state.view == "processo":
                 else:
                     candidato_id = existe[0]
 
-                # Vínculo ao processo
-                cursor.execute("INSERT OR IGNORE INTO processos_candidatos (processo_id, candidato_id) VALUES (%s, %s)", (processo_id, candidato_id))
+                # Vínculo ao processo - PostgreSQL syntax
+                cursor.execute("""
+                    INSERT INTO processos_candidatos (processo_id, candidato_id) 
+                    VALUES (%s, %s) 
+                    ON CONFLICT (processo_id, candidato_id) DO NOTHING
+                """, (processo_id, candidato_id))
                 conn.commit()
                 st.success("Candidato registrado!")
 
@@ -167,8 +164,8 @@ elif st.session_state.view == "processo":
         FROM processos_candidatos pc
         JOIN candidatos c ON pc.candidato_id = c.id
         LEFT JOIN avaliacoes a
-            ON c.id = a.candidato_id AND a.processo_id = ?
-        WHERE pc.processo_id = ?
+            ON c.id = a.candidato_id AND a.processo_id = %s
+        WHERE pc.processo_id = %s
         GROUP BY c.id
         ORDER BY c.nome
     """, (processo_id, processo_id))
