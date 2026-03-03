@@ -4,7 +4,7 @@ import psycopg2
 
 def get_connection():
     return psycopg2.connect(
-        os.environ["postgresql://postgres:lhAKVLjTfnMiCdpGWGLnZoFlfLHhQIeI@nozomi.proxy.rlwy.net:36366/railway"]
+        os.environ["DATABASE_URL"]
     )
 
 
