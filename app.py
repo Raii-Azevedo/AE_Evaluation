@@ -39,7 +39,8 @@ if "avaliacao_id" not in st.session_state:
 # Função para resetar avaliação
 def reset_avaliacao(estrutura):
     for bloco, criterios in estrutura.items():
-        for criterio in criterios:
+        for item in criterios:
+            criterio = item["criterio"]
             st.session_state[f"{bloco}_{criterio}"] = 5.0
             st.session_state[f"just_{bloco}_{criterio}"] = ""
 
@@ -66,7 +67,7 @@ if st.session_state.view == "home":
     with st.expander("➕ Criar Novo Processo"):
         nome = st.text_input("Nome do Processo", key="novo_nome_processo")
         area = st.selectbox("Área", ["Analytics Engineer"], key="novo_area_processo")
-        tipo = st.selectbox("Tipo", ["Ampla Concorrência", "Afirnativa: Mulheres Cis e Trans", "Afirmativa: Pessoas Negras", "Afirmativa: LGBTQIAPN+"], key="novo_tipo_processo")
+        tipo = st.selectbox("Tipo", ["Ampla Concorrência", "Afirmativa: Mulheres Cis e Trans", "Afirmativa: Pessoas Negras", "Afirmativa: LGBTQIAPN+"], key="novo_tipo_processo")
         senioridade = st.selectbox("Senioridade", ["Estágio", "Pleno"], key="novo_senioridade")
         status = st.selectbox("Status", ["Aberto", "Fechado"], key="novo_status")
         local = st.selectbox("Local", ["BRASIL", "LATAM"], key="novo_local_processo")
@@ -420,6 +421,12 @@ elif st.session_state.view == "avaliar":
             key_nota = "{}_{}".format(bloco, criterio)
             key_just = "just_{}_{}".format(bloco, criterio)
 
+            # Inicializar session_state se não existir
+            if key_nota not in st.session_state:
+                st.session_state[key_nota] = 5.0
+            if key_just not in st.session_state:
+                st.session_state[key_just] = ""
+
             # Renderizar o critério com estilo
             st.markdown(f"""
                 <p style="font-size:20px; font-weight:700; margin-bottom:4px;">{criterio}</p>
@@ -545,8 +552,11 @@ elif st.session_state.view == "detalhe_avaliacao":
 
         criterios = cursor.fetchall()
 
+        bloco_atual = None
         for bloco, criterio, nota, justificativa in criterios:
-            st.subheader(bloco)
+            if bloco != bloco_atual:
+                st.subheader(bloco)
+                bloco_atual = bloco
             st.write("**{}** — Nota: {}".format(criterio, nota))
             st.write("Justificativa: {}".format(justificativa))
             st.divider()
