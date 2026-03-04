@@ -93,7 +93,6 @@ def init_db():
                 WHEN is_admin = TRUE THEN 'admin'
                 ELSE 'user'
             END
-            WHERE role IS NULL OR role = ''
             """)
             cursor.execute("ALTER TABLE allowed_emails DROP COLUMN is_admin")
             conn.commit()
@@ -101,6 +100,18 @@ def init_db():
         # Rollback em caso de erro e continuar
         conn.rollback()
         print(f"Migration note: {e}")
+
+    # Garantir que todos os usuários têm um role válido
+    try:
+        cursor.execute("""
+        UPDATE allowed_emails
+        SET role = 'user'
+        WHERE role IS NULL OR role = '' OR role NOT IN ('admin', 'user', 'viewer')
+        """)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Role update note: {e}")
 
     # Inserir admin padrão se não existir
     try:
