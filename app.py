@@ -312,17 +312,12 @@ if not st.session_state.authenticated:
             border: 2px solid rgba(255,255,255,0.2);
             box-shadow: 0px 20px 70px rgba(0,0,0,0.5), inset 0px 1px 0px rgba(255,255,255,0.1);
         ">
-            <div style="text-align:center; margin-bottom:35px;">
-                <p style="font-size:15px; color:rgba(255,255,255,0.7);">
-                    Entre com seu email corporativo
-                </p>
-            </div>
         </div>
         """, unsafe_allow_html=True)
         
         # Input de email com estilo
         st.markdown("""
-        <div style="margin-bottom:20px;">
+        <div style="margin-bottom:20px; margin-top:20px;">
             <label style="
                 display:block;
                 font-size:14px;
