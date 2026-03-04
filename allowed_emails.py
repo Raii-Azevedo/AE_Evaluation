@@ -4,16 +4,12 @@
 def is_email_allowed(email):
     """
     Verifica se o email está autorizado a acessar o sistema.
-    Aceita qualquer email @artefact.com ou emails específicos no banco de dados.
+    Apenas emails cadastrados no banco de dados têm acesso.
     """
     if not email:
         return False
     
     email = email.lower().strip()
-    
-    # Verifica se o email termina com @artefact.com
-    if email.endswith("@artefact.com"):
-        return True
     
     # Verifica se o email está na lista de permitidos no banco
     try:

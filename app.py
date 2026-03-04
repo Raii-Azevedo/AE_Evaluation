@@ -349,7 +349,7 @@ if not st.session_state.authenticated:
         ">
             <p style="font-size:13px; color:rgba(255,255,255,0.8); margin:0;">
                 <strong>ℹ️ Informação:</strong><br>
-                Apenas emails com domínio <strong>@artefact.com</strong> têm acesso autorizado ao sistema.
+                Apenas emails <strong>previamente cadastrados</strong> têm acesso autorizado ao sistema. Entre em contato com um administrador para solicitar acesso.
             </p>
         </div>
         """, unsafe_allow_html=True)
@@ -1170,8 +1170,8 @@ elif st.session_state.view == "admin":
     ">
         <p style="font-size:14px; color:rgba(255,255,255,0.9); margin:0;">
             <strong>🔐 Política de Acesso:</strong><br><br>
-            • Todos os emails com domínio <strong>@artefact.com</strong> têm acesso automático ao sistema<br>
-            • Emails de outros domínios precisam ser adicionados manualmente nesta página<br>
+            • <strong>APENAS</strong> emails cadastrados nesta lista têm acesso ao sistema<br>
+            • Não há acesso automático por domínio - todos devem ser adicionados manualmente<br>
             • Apenas administradores podem gerenciar a lista de emails autorizados<br>
             • O email <strong>admin@artefact.com</strong> é protegido e não pode ser removido
         </p>
