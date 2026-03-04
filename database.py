@@ -78,6 +78,7 @@ def init_db():
         added_at TIMESTAMP DEFAULT NOW()
     )
     """)
+    conn.commit()
 
     # Tentar migrar coluna is_admin para role se existir
     try:
@@ -96,17 +97,22 @@ def init_db():
             """)
             cursor.execute("ALTER TABLE allowed_emails DROP COLUMN is_admin")
             conn.commit()
-    except:
-        # Coluna já foi migrada ou não existe
-        pass
+    except Exception as e:
+        # Rollback em caso de erro e continuar
+        conn.rollback()
+        print(f"Migration note: {e}")
 
     # Inserir admin padrão se não existir
-    cursor.execute("""
-    INSERT INTO allowed_emails (email, role, added_by)
-    VALUES ('admin@artefact.com', 'admin', 'system')
-    ON CONFLICT (email) DO UPDATE SET role = 'admin'
-    """)
+    try:
+        cursor.execute("""
+        INSERT INTO allowed_emails (email, role, added_by)
+        VALUES ('admin@artefact.com', 'admin', 'system')
+        ON CONFLICT (email) DO UPDATE SET role = 'admin'
+        """)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Admin user note: {e}")
 
-    conn.commit()
     cursor.close()
     conn.close()
