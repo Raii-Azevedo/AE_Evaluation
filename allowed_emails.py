@@ -1,8 +1,6 @@
 # Sistema de gerenciamento de emails autorizados
 # Agora usando banco de dados para armazenar emails permitidos
 
-from database import get_connection
-
 def is_email_allowed(email):
     """
     Verifica se o email está autorizado a acessar o sistema.
@@ -19,6 +17,7 @@ def is_email_allowed(email):
     
     # Verifica se o email está na lista de permitidos no banco
     try:
+        from database import get_connection
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM allowed_emails WHERE LOWER(email) = %s", (email,))
@@ -39,6 +38,7 @@ def is_admin(email):
     email = email.lower().strip()
     
     try:
+        from database import get_connection
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT is_admin FROM allowed_emails WHERE LOWER(email) = %s", (email,))
@@ -54,6 +54,7 @@ def add_allowed_email(email, is_admin_user=False, added_by=None):
     Adiciona um email à lista de permitidos.
     """
     try:
+        from database import get_connection
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("""
@@ -74,6 +75,7 @@ def remove_allowed_email(email):
     Remove um email da lista de permitidos.
     """
     try:
+        from database import get_connection
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("DELETE FROM allowed_emails WHERE LOWER(email) = %s", (email.lower().strip(),))
@@ -90,6 +92,7 @@ def get_all_allowed_emails():
     Retorna todos os emails permitidos.
     """
     try:
+        from database import get_connection
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT email, is_admin, added_by, added_at FROM allowed_emails ORDER BY added_at DESC")
