@@ -1052,6 +1052,7 @@ elif st.session_state.view == "statistics":
                 <div>
                     <p style="font-size:20px; font-weight:700; margin:0;">{medal} {nome}</p>
                     <p style="color:#9CA3AF; font-size:14px; margin:4px 0 0 0;">{email}</p>
+                    <p style="color:#9CA3AF; font-size:14px; margin:4px 0 0 0;">{area}</p>
                 </div>
                 <div style="text-align:right;">
                     <p style="font-size:32px; font-weight:800; color:{nota_color}; margin:0;">{nota}</p>
