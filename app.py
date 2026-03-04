@@ -313,14 +313,6 @@ if not st.session_state.authenticated:
             box-shadow: 0px 20px 70px rgba(0,0,0,0.5), inset 0px 1px 0px rgba(255,255,255,0.1);
         ">
             <div style="text-align:center; margin-bottom:35px;">
-                <h2 style="
-                    font-size:32px;
-                    font-weight:700;
-                    color:white;
-                    margin-bottom:12px;
-                ">
-                    Bem-vindo de volta! 👋
-                </h2>
                 <p style="font-size:15px; color:rgba(255,255,255,0.7);">
                     Entre com seu email corporativo
                 </p>
