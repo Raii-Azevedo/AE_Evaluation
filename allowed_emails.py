@@ -1,5 +1,6 @@
 # Sistema de gerenciamento de emails autorizados
 # Agora usando banco de dados para armazenar emails permitidos
+# Suporta 3 roles: admin, user, viewer
 
 def is_email_allowed(email):
     """
@@ -24,12 +25,12 @@ def is_email_allowed(email):
     except:
         return False
 
-def is_admin(email):
+def get_user_role(email):
     """
-    Verifica se o email tem privilégios de administrador.
+    Retorna o role do usuário: 'admin', 'user', 'viewer' ou None.
     """
     if not email:
-        return False
+        return None
     
     email = email.lower().strip()
     
@@ -37,27 +38,51 @@ def is_admin(email):
         from database import get_connection
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT is_admin FROM allowed_emails WHERE LOWER(email) = %s", (email,))
+        cursor.execute("SELECT role FROM allowed_emails WHERE LOWER(email) = %s", (email,))
         result = cursor.fetchone()
         cursor.close()
         conn.close()
-        return result and result[0]
+        return result[0] if result else None
     except:
-        return False
+        return None
 
-def add_allowed_email(email, is_admin_user=False, added_by=None):
+def is_admin(email):
+    """
+    Verifica se o email tem privilégios de administrador.
+    """
+    return get_user_role(email) == 'admin'
+
+def is_viewer(email):
+    """
+    Verifica se o email é apenas visualizador (read-only).
+    """
+    return get_user_role(email) == 'viewer'
+
+def can_edit(email):
+    """
+    Verifica se o usuário pode editar (criar processos, avaliar, etc).
+    Apenas admin e user podem editar. Viewer não pode.
+    """
+    role = get_user_role(email)
+    return role in ['admin', 'user']
+
+def add_allowed_email(email, role='user', added_by=None):
     """
     Adiciona um email à lista de permitidos.
+    role: 'admin', 'user', ou 'viewer'
     """
+    if role not in ['admin', 'user', 'viewer']:
+        role = 'user'
+    
     try:
         from database import get_connection
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO allowed_emails (email, is_admin, added_by)
+            INSERT INTO allowed_emails (email, role, added_by)
             VALUES (%s, %s, %s)
-            ON CONFLICT (email) DO UPDATE SET is_admin = EXCLUDED.is_admin
-        """, (email.lower().strip(), is_admin_user, added_by))
+            ON CONFLICT (email) DO UPDATE SET role = EXCLUDED.role
+        """, (email.lower().strip(), role, added_by))
         conn.commit()
         cursor.close()
         conn.close()
@@ -91,7 +116,7 @@ def get_all_allowed_emails():
         from database import get_connection
         conn = get_connection()
         cursor = conn.cursor()
-        cursor.execute("SELECT email, is_admin, added_by, added_at FROM allowed_emails ORDER BY added_at DESC")
+        cursor.execute("SELECT email, role, added_by, added_at FROM allowed_emails ORDER BY added_at DESC")
         results = cursor.fetchall()
         cursor.close()
         conn.close()

@@ -72,17 +72,32 @@ def init_db():
     CREATE TABLE IF NOT EXISTS allowed_emails (
         id SERIAL PRIMARY KEY,
         email TEXT UNIQUE NOT NULL,
-        is_admin BOOLEAN DEFAULT FALSE,
+        role TEXT DEFAULT 'user',  -- 'admin', 'user', 'viewer'
         added_by TEXT,
         added_at TIMESTAMP DEFAULT NOW()
     )
     """)
 
+    # Migrar dados existentes de is_admin para role
+    cursor.execute("""
+    DO $$
+    BEGIN
+        IF EXISTS (SELECT 1 FROM information_schema.columns
+                   WHERE table_name='allowed_emails' AND column_name='is_admin') THEN
+            UPDATE allowed_emails SET role = CASE
+                WHEN is_admin = TRUE THEN 'admin'
+                ELSE 'user'
+            END;
+            ALTER TABLE allowed_emails DROP COLUMN IF EXISTS is_admin;
+        END IF;
+    END $$;
+    """)
+
     # Inserir admin padrão se não existir
     cursor.execute("""
-    INSERT INTO allowed_emails (email, is_admin, added_by)
-    VALUES ('admin@artefact.com', TRUE, 'system')
-    ON CONFLICT (email) DO NOTHING
+    INSERT INTO allowed_emails (email, role, added_by)
+    VALUES ('admin@artefact.com', 'admin', 'system')
+    ON CONFLICT (email) DO UPDATE SET role = 'admin'
     """)
 
     conn.commit()

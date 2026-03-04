@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from database import init_db, get_connection
-from allowed_emails import is_email_allowed, is_admin, add_allowed_email, remove_allowed_email, get_all_allowed_emails
+from allowed_emails import is_email_allowed, is_admin, is_viewer, can_edit, get_user_role, add_allowed_email, remove_allowed_email, get_all_allowed_emails
 from criterios_areas import get_criterios_por_area, get_areas_disponiveis
 
 st.set_page_config(page_title="Sistema de Avaliação Técnica", layout="wide", initial_sidebar_state="collapsed")
@@ -376,12 +376,26 @@ if not st.session_state.authenticated:
 # =====================================================
 # HEADER COM LOGOUT E NAVEGAÇÃO
 # =====================================================
+user_role = get_user_role(st.session_state.user_email)
+role_badge = {
+    'admin': '👑 Admin',
+    'user': '👤 User',
+    'viewer': '👁️ Viewer'
+}.get(user_role, '👤 User')
+
+role_color = {
+    'admin': '#F472B6',
+    'user': '#60A5FA',
+    'viewer': '#9ca3af'
+}.get(user_role, '#60A5FA')
+
 col_h1, col_h2, col_h3, col_h4, col_h5 = st.columns([2, 1, 1, 1, 1])
 
 with col_h1:
     st.markdown(f"""
     <p style="color:rgba(255,255,255,0.7); font-size:14px; margin-top:16px;">
-        👤 <strong>{st.session_state.user_email}</strong>
+        <strong>{st.session_state.user_email}</strong>
+        <span style="background:{role_color}20; color:{role_color}; padding:4px 12px; border-radius:8px; font-size:12px; margin-left:8px;">{role_badge}</span>
     </p>
     """, unsafe_allow_html=True)
 
@@ -408,6 +422,10 @@ with col_h5:
         st.session_state.view = "home"
         st.rerun()
 
+# Mostrar aviso para viewers
+if is_viewer(st.session_state.user_email):
+    st.info("👁️ Você está no modo visualização. Você pode ver todas as informações mas não pode criar ou editar.")
+
 st.markdown("<hr>", unsafe_allow_html=True)
 
 # =====================================================
@@ -430,32 +448,34 @@ if st.session_state.view == "home":
     </h1>
     """, unsafe_allow_html=True)
 
-    with st.expander("➕ Criar Novo Processo", expanded=False):
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            nome = st.text_input("Nome do Processo", key="novo_nome_processo")
-            area = st.selectbox("Área", get_areas_disponiveis(), key="novo_area_processo")
-            tipo = st.selectbox("Tipo", [
-                "Ampla Concorrência", 
-                "Afirmativa: Mulheres Cis e Trans", 
-                "Afirmativa: Pessoas Negras", 
-                "Afirmativa: LGBTQIAPN+"
-            ], key="novo_tipo_processo")
-        
-        with col2:
-            senioridade = st.selectbox("Senioridade", ["Estágio", "Pleno"], key="novo_senioridade")
-            status = st.selectbox("Status", ["Aberto"], key="novo_status")
-            local = st.selectbox("Local", ["BRASIL", "LATAM"], key="novo_local_processo")
+    # Apenas administradores podem criar processos
+    if is_admin(st.session_state.user_email):
+        with st.expander("➕ Criar Novo Processo", expanded=False):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                nome = st.text_input("Nome do Processo", key="novo_nome_processo")
+                area = st.selectbox("Área", get_areas_disponiveis(), key="novo_area_processo")
+                tipo = st.selectbox("Tipo", [
+                    "Ampla Concorrência",
+                    "Afirmativa: Mulheres Cis e Trans",
+                    "Afirmativa: Pessoas Negras",
+                    "Afirmativa: LGBTQIAPN+"
+                ], key="novo_tipo_processo")
+            
+            with col2:
+                senioridade = st.selectbox("Senioridade", ["Estágio", "Júnior", "Pleno", "Sênior"], key="novo_senioridade")
+                status = st.selectbox("Status", ["Aberto", "Fechado"], key="novo_status")
+                local = st.selectbox("Local", ["BRASIL", "LATAM", "EUROPA", "GLOBAL"], key="novo_local_processo")
 
-        if st.button("✨ Criar Processo", use_container_width=True):
-            cursor.execute("""
-                INSERT INTO processos (nome, area, tipo, senioridade, status, local)
-                VALUES (%s, %s, %s, %s, %s, %s)
-            """, (nome, area, tipo, senioridade, status, local))
-            conn.commit()
-            st.success("✅ Processo criado com sucesso!")
-            st.rerun()
+            if st.button("✨ Criar Processo", use_container_width=True):
+                cursor.execute("""
+                    INSERT INTO processos (nome, area, tipo, senioridade, status, local)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                """, (nome, area, tipo, senioridade, status, local))
+                conn.commit()
+                st.success("✅ Processo criado com sucesso!")
+                st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -511,7 +531,7 @@ elif st.session_state.view == "processo":
         st.caption(f"Área: {area_processo}")
     
     with col_close:
-        if status_processo == "Aberto":
+        if status_processo == "Aberto" and is_admin(st.session_state.user_email):
             if st.button("🔒 Fechar Processo"):
                 cursor.execute("UPDATE processos SET status = %s WHERE id = %s", ("Fechado", processo_id))
                 conn.commit()
@@ -520,8 +540,8 @@ elif st.session_state.view == "processo":
     
     st.divider()
 
-    # Adicionar candidato (só se aberto)
-    if status_processo == "Aberto":
+    # Adicionar candidato (só se aberto e usuário pode editar)
+    if status_processo == "Aberto" and can_edit(st.session_state.user_email):
         with st.expander("➕ Adicionar Candidato", expanded=False):
             col1, col2 = st.columns(2)
             
@@ -541,8 +561,8 @@ elif st.session_state.view == "processo":
                     candidato_id = existe[0]
 
                 cursor.execute("""
-                    INSERT INTO processos_candidatos (processo_id, candidato_id) 
-                    VALUES (%s, %s) 
+                    INSERT INTO processos_candidatos (processo_id, candidato_id)
+                    VALUES (%s, %s)
                     ON CONFLICT (processo_id, candidato_id) DO NOTHING
                 """, (processo_id, candidato_id))
                 conn.commit()
@@ -647,7 +667,7 @@ elif st.session_state.view == "processo":
                     st.rerun()
 
         with col2:
-            if not avaliacao and status_processo == "Aberto":
+            if not avaliacao and status_processo == "Aberto" and can_edit(st.session_state.user_email):
                 if st.button("📝 Avaliar", key=f"avaliar_{id_c}", use_container_width=True):
                     st.session_state.candidato_id = id_c
                     st.session_state.view = "avaliar"
@@ -657,6 +677,14 @@ elif st.session_state.view == "processo":
 # 📝 AVALIAR
 # =====================================================
 elif st.session_state.view == "avaliar":
+    
+    # Verificar se usuário pode editar
+    if not can_edit(st.session_state.user_email):
+        st.error("❌ Você não tem permissão para avaliar candidatos. Apenas usuários com role 'user' ou 'admin' podem avaliar.")
+        if st.button("← Voltar ao Processo"):
+            st.session_state.view = "processo"
+            st.rerun()
+        st.stop()
 
     candidato_id = st.session_state.candidato_id
     processo_id = st.session_state.processo_id
@@ -1091,18 +1119,28 @@ elif st.session_state.view == "admin":
     
     # Adicionar novo email
     with st.expander("➕ Adicionar Novo Email", expanded=False):
-        col1, col2 = st.columns([3, 1])
+        col1, col2 = st.columns([2, 1])
         
         with col1:
             new_email = st.text_input("Email", placeholder="usuario@exemplo.com", key="new_email_input")
         
         with col2:
-            is_admin_user = st.checkbox("Admin", key="new_email_admin")
+            new_role = st.selectbox("Role", ["user", "admin", "viewer"], key="new_email_role")
+        
+        st.markdown("""
+        <div style="background:rgba(59,130,246,0.1); padding:12px; border-radius:12px; margin-bottom:12px;">
+            <p style="font-size:13px; color:rgba(255,255,255,0.8); margin:0;">
+                <strong>👑 Admin:</strong> Criar/fechar processos + gerenciar usuários + avaliar<br>
+                <strong>👤 User:</strong> Adicionar candidatos e avaliar (não cria processos)<br>
+                <strong>👁️ Viewer:</strong> Apenas visualização (read-only)
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
         
         if st.button("✨ Adicionar Email", use_container_width=True):
             if new_email:
-                if add_allowed_email(new_email, is_admin_user, st.session_state.user_email):
-                    st.success(f"✅ Email {new_email} adicionado com sucesso!")
+                if add_allowed_email(new_email, new_role, st.session_state.user_email):
+                    st.success(f"✅ Email {new_email} adicionado como {new_role}!")
                     st.rerun()
                 else:
                     st.error("❌ Erro ao adicionar email.")
@@ -1117,9 +1155,16 @@ elif st.session_state.view == "admin":
     allowed_emails = get_all_allowed_emails()
     
     if allowed_emails:
-        for email, is_admin_flag, added_by, added_at in allowed_emails:
-            admin_badge = "👑 ADMIN" if is_admin_flag else "👤 USER"
-            admin_color = "#F472B6" if is_admin_flag else "#60A5FA"
+        for email, role, added_by, added_at in allowed_emails:
+            role_info = {
+                'admin': {'badge': '👑 ADMIN', 'color': '#F472B6'},
+                'user': {'badge': '👤 USER', 'color': '#60A5FA'},
+                'viewer': {'badge': '👁️ VIEWER', 'color': '#9ca3af'}
+            }
+            
+            info = role_info.get(role, role_info['user'])
+            role_badge = info['badge']
+            role_color = info['color']
             
             st.markdown(f"""
             <div class="card">
@@ -1132,13 +1177,13 @@ elif st.session_state.view == "admin":
                     </div>
                     <div style="text-align:right;">
                         <span style="
-                            background:{admin_color}20;
-                            color:{admin_color};
+                            background:{role_color}20;
+                            color:{role_color};
                             padding:8px 16px;
                             border-radius:12px;
                             font-weight:700;
                             font-size:14px;
-                        ">{admin_badge}</span>
+                        ">{role_badge}</span>
                     </div>
                 </div>
             </div>
@@ -1174,7 +1219,11 @@ elif st.session_state.view == "admin":
             • <strong>APENAS</strong> emails cadastrados nesta lista têm acesso ao sistema<br>
             • Não há acesso automático por domínio - todos devem ser adicionados manualmente<br>
             • Apenas administradores podem gerenciar a lista de emails autorizados<br>
-            • O email <strong>admin@artefact.com</strong> é protegido e não pode ser removido
+            • O email <strong>admin@artefact.com</strong> é protegido e não pode ser removido<br><br>
+            <strong>👥 Roles do Sistema:</strong><br><br>
+            • <strong>👑 Admin:</strong> Criar/fechar processos + gerenciar usuários + adicionar candidatos + avaliar<br>
+            • <strong>👤 User:</strong> Adicionar candidatos e avaliar em processos existentes (não cria processos)<br>
+            • <strong>👁️ Viewer:</strong> Apenas visualização (read-only), não pode editar nada
         </p>
     </div>
     """, unsafe_allow_html=True)
