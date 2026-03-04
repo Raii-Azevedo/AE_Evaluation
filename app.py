@@ -428,9 +428,9 @@ if st.session_state.view == "home":
             ], key="novo_tipo_processo")
         
         with col2:
-            senioridade = st.selectbox("Senioridade", ["Estágio", "Júnior", "Pleno", "Sênior"], key="novo_senioridade")
-            status = st.selectbox("Status", ["Aberto", "Fechado"], key="novo_status")
-            local = st.selectbox("Local", ["BRASIL", "LATAM", "EUROPA", "GLOBAL"], key="novo_local_processo")
+            senioridade = st.selectbox("Senioridade", ["Estágio", "Pleno"], key="novo_senioridade")
+            status = st.selectbox("Status", ["Aberto"], key="novo_status")
+            local = st.selectbox("Local", ["BRASIL", "LATAM"], key="novo_local_processo")
 
         if st.button("✨ Criar Processo", use_container_width=True):
             cursor.execute("""
