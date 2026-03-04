@@ -1,23 +1,202 @@
 import streamlit as st
 import pandas as pd
 from database import init_db, get_connection
+from allowed_emails import is_email_allowed
+from criterios_areas import get_criterios_por_area, get_areas_disponiveis
 
-st.set_page_config(page_title="Sistema de Avaliação", layout="wide")
+st.set_page_config(page_title="Sistema de Avaliação Técnica", layout="wide", initial_sidebar_state="collapsed")
 
-# ===== ESTILO =====
+# ===== ESTILO APRIMORADO =====
 st.markdown("""
 <style>
-.stApp { background: linear-gradient(135deg, #0B1E3D 0%, #3A1C71 40%, #D4145A 100%); }
-.card { background: linear-gradient(135deg, rgba(29,78,216,0.25), rgba(219,39,119,0.25)); backdrop-filter: blur(12px); padding: 28px; border-radius: 20px; margin-bottom: 25px; border: 1px solid rgba(255,255,255,0.15); box-shadow: 0px 10px 30px rgba(0,0,0,0.35); }
-.card:hover { transform: translateY(-6px); box-shadow: 0px 20px 40px rgba(0,0,0,0.5); }
-.status-green { color: #22c55e; font-weight: bold; }
-.status-yellow { color: #facc15; font-weight: bold; }
-.status-red { color: #ef4444; font-weight: bold; }
-.status-gray { color: #9ca3af; font-weight: bold; }
-h1, h2, h3 { color: white; }
-.stButton>button { border-radius: 12px; height: 44px; font-weight: 600; border: none; background: linear-gradient(135deg, #3B82F6, #EC4899); color: white; transition: 0.25s ease-in-out; }
-.stButton>button:hover { transform: translateY(-3px); box-shadow: 0px 10px 20px rgba(236,72,153,0.5); }
-.stTextInput>div>div>input, .stTextArea textarea { border-radius: 12px !important; background-color: rgba(255,255,255,0.08) !important; color: white !important; border: 1px solid rgba(255,255,255,0.15) !important; }
+/* Background e tema geral */
+.stApp { 
+    background: linear-gradient(135deg, #0B1E3D 0%, #1e3a5f 50%, #2d5a8a 100%); 
+}
+
+/* Cards com efeito glassmorphism */
+.card { 
+    background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05)); 
+    backdrop-filter: blur(20px); 
+    padding: 32px; 
+    border-radius: 24px; 
+    margin-bottom: 24px; 
+    border: 1px solid rgba(255,255,255,0.18); 
+    box-shadow: 0px 8px 32px rgba(0,0,0,0.3);
+    transition: all 0.3s ease;
+}
+
+.card:hover { 
+    transform: translateY(-4px); 
+    box-shadow: 0px 16px 48px rgba(0,0,0,0.4);
+    border: 1px solid rgba(255,255,255,0.25);
+}
+
+/* Login card especial */
+.login-card {
+    background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(147,51,234,0.15));
+    backdrop-filter: blur(20px);
+    padding: 48px;
+    border-radius: 24px;
+    border: 1px solid rgba(255,255,255,0.2);
+    box-shadow: 0px 16px 48px rgba(0,0,0,0.4);
+    max-width: 500px;
+    margin: 80px auto;
+}
+
+/* Status badges */
+.status-green { 
+    color: #10b981; 
+    font-weight: 700; 
+    font-size: 16px;
+    background: rgba(16,185,129,0.1);
+    padding: 6px 16px;
+    border-radius: 12px;
+    display: inline-block;
+}
+
+.status-yellow { 
+    color: #f59e0b; 
+    font-weight: 700; 
+    font-size: 16px;
+    background: rgba(245,158,11,0.1);
+    padding: 6px 16px;
+    border-radius: 12px;
+    display: inline-block;
+}
+
+.status-red { 
+    color: #ef4444; 
+    font-weight: 700; 
+    font-size: 16px;
+    background: rgba(239,68,68,0.1);
+    padding: 6px 16px;
+    border-radius: 12px;
+    display: inline-block;
+}
+
+.status-gray { 
+    color: #9ca3af; 
+    font-weight: 700; 
+    font-size: 16px;
+    background: rgba(156,163,175,0.1);
+    padding: 6px 16px;
+    border-radius: 12px;
+    display: inline-block;
+}
+
+/* Títulos e textos */
+h1, h2, h3, h4 { 
+    color: white !important; 
+    font-weight: 700 !important;
+}
+
+h1 { 
+    font-size: 42px !important; 
+    margin-bottom: 24px !important;
+}
+
+h2 { 
+    font-size: 32px !important; 
+    margin-bottom: 20px !important;
+}
+
+h3 { 
+    font-size: 24px !important; 
+    margin-bottom: 16px !important;
+}
+
+p, label, .stMarkdown { 
+    color: rgba(255,255,255,0.9) !important; 
+}
+
+/* Botões modernos */
+.stButton>button { 
+    border-radius: 16px !important; 
+    height: 48px !important; 
+    font-weight: 600 !important; 
+    border: none !important; 
+    background: linear-gradient(135deg, #3B82F6, #8B5CF6) !important; 
+    color: white !important; 
+    transition: all 0.3s ease !important;
+    box-shadow: 0px 4px 12px rgba(59,130,246,0.3) !important;
+    font-size: 15px !important;
+}
+
+.stButton>button:hover { 
+    transform: translateY(-2px) !important; 
+    box-shadow: 0px 8px 24px rgba(139,92,246,0.5) !important;
+    background: linear-gradient(135deg, #2563EB, #7C3AED) !important;
+}
+
+/* Inputs modernos */
+.stTextInput>div>div>input, 
+.stTextArea textarea, 
+.stSelectbox>div>div>select { 
+    border-radius: 16px !important; 
+    background-color: rgba(255,255,255,0.1) !important; 
+    color: white !important; 
+    border: 1px solid rgba(255,255,255,0.2) !important;
+    padding: 12px 16px !important;
+    font-size: 15px !important;
+    transition: all 0.3s ease !important;
+}
+
+.stTextInput>div>div>input:focus, 
+.stTextArea textarea:focus,
+.stSelectbox>div>div>select:focus { 
+    border: 1px solid rgba(139,92,246,0.6) !important;
+    box-shadow: 0px 0px 0px 3px rgba(139,92,246,0.2) !important;
+    background-color: rgba(255,255,255,0.15) !important;
+}
+
+/* Sliders */
+.stSlider>div>div>div>div {
+    background: linear-gradient(90deg, #3B82F6, #8B5CF6) !important;
+}
+
+/* Expanders */
+.streamlit-expanderHeader {
+    background-color: rgba(255,255,255,0.08) !important;
+    border-radius: 16px !important;
+    color: white !important;
+    font-weight: 600 !important;
+    border: 1px solid rgba(255,255,255,0.15) !important;
+}
+
+/* Dividers */
+hr {
+    border-color: rgba(255,255,255,0.15) !important;
+    margin: 32px 0 !important;
+}
+
+/* Métricas */
+.stMetric {
+    background: rgba(255,255,255,0.08);
+    padding: 20px;
+    border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.15);
+}
+
+/* Radio buttons */
+.stRadio>div {
+    background: rgba(255,255,255,0.05);
+    padding: 12px;
+    border-radius: 16px;
+}
+
+/* Captions */
+.caption {
+    color: rgba(255,255,255,0.6) !important;
+    font-size: 14px !important;
+}
+
+/* Success/Warning/Error messages */
+.stSuccess, .stWarning, .stError, .stInfo {
+    border-radius: 16px !important;
+    padding: 16px !important;
+    backdrop-filter: blur(10px) !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -27,6 +206,10 @@ conn = get_connection()
 cursor = conn.cursor()
 
 # ===== SESSION STATE =====
+if "authenticated" not in st.session_state:
+    st.session_state.authenticated = False
+if "user_email" not in st.session_state:
+    st.session_state.user_email = None
 if "view" not in st.session_state:
     st.session_state.view = "home"
 if "processo_id" not in st.session_state:
@@ -45,6 +228,88 @@ def reset_avaliacao(estrutura):
             st.session_state[f"just_{bloco}_{criterio}"] = ""
 
 # =====================================================
+# 🔐 LOGIN PAGE
+# =====================================================
+if not st.session_state.authenticated:
+    
+    st.markdown("""
+    <div style="text-align:center; margin-top: 60px;">
+        <h1 style="
+            font-size:56px;
+            font-weight:800;
+            letter-spacing:-2px;
+            background: linear-gradient(90deg, #60A5FA, #A78BFA, #F472B6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom:16px;
+        ">
+            Sistema de Avaliação Técnica
+        </h1>
+        <p style="font-size:18px; color:rgba(255,255,255,0.7); margin-bottom:48px;">
+            Acesso restrito a colaboradores Artefact
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col2:
+        st.markdown('<div class="login-card">', unsafe_allow_html=True)
+        
+        st.markdown("### 🔐 Login")
+        st.markdown("Digite seu email corporativo @artefact.com")
+        
+        email_input = st.text_input(
+            "Email", 
+            placeholder="seu.nome@artefact.com",
+            key="login_email",
+            label_visibility="collapsed"
+        )
+        
+        col_btn1, col_btn2 = st.columns([1, 1])
+        
+        with col_btn1:
+            if st.button("Entrar", use_container_width=True):
+                if is_email_allowed(email_input):
+                    st.session_state.authenticated = True
+                    st.session_state.user_email = email_input
+                    st.success(f"✅ Bem-vindo(a)!")
+                    st.rerun()
+                else:
+                    st.error("❌ Acesso negado. Apenas emails @artefact.com são permitidos.")
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+        
+        st.markdown("""
+        <div style="text-align:center; margin-top:32px; color:rgba(255,255,255,0.5); font-size:14px;">
+            <p>🔒 Sistema seguro e confidencial</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.stop()
+
+# =====================================================
+# HEADER COM LOGOUT
+# =====================================================
+col_header1, col_header2 = st.columns([4, 1])
+
+with col_header1:
+    st.markdown(f"""
+    <p style="color:rgba(255,255,255,0.7); font-size:14px; margin-top:16px;">
+        👤 Logado como: <strong>{st.session_state.user_email}</strong>
+    </p>
+    """, unsafe_allow_html=True)
+
+with col_header2:
+    if st.button("🚪 Sair", key="logout_btn"):
+        st.session_state.authenticated = False
+        st.session_state.user_email = None
+        st.session_state.view = "home"
+        st.rerun()
+
+st.markdown("<hr>", unsafe_allow_html=True)
+
+# =====================================================
 # 🏠 HOME
 # =====================================================
 if st.session_state.view == "home":
@@ -58,45 +323,69 @@ if st.session_state.view == "home":
         background: linear-gradient(90deg, #60A5FA, #A78BFA, #F472B6);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        margin-bottom:30px;
+        margin-bottom:40px;
     ">
-        SISTEMA DE AVALIAÇÃO TÉCNICA
+        PROCESSOS SELETIVOS
     </h1>
     """, unsafe_allow_html=True)
 
-    with st.expander("➕ Criar Novo Processo"):
-        nome = st.text_input("Nome do Processo", key="novo_nome_processo")
-        area = st.selectbox("Área", ["Analytics Engineer"], key="novo_area_processo")
-        tipo = st.selectbox("Tipo", ["Ampla Concorrência", "Afirmativa: Mulheres Cis e Trans", "Afirmativa: Pessoas Negras", "Afirmativa: LGBTQIAPN+"], key="novo_tipo_processo")
-        senioridade = st.selectbox("Senioridade", ["Estágio", "Pleno"], key="novo_senioridade")
-        status = st.selectbox("Status", ["Aberto", "Fechado"], key="novo_status")
-        local = st.selectbox("Local", ["BRASIL", "LATAM"], key="novo_local_processo")
+    with st.expander("➕ Criar Novo Processo", expanded=False):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            nome = st.text_input("Nome do Processo", key="novo_nome_processo")
+            area = st.selectbox("Área", get_areas_disponiveis(), key="novo_area_processo")
+            tipo = st.selectbox("Tipo", [
+                "Ampla Concorrência", 
+                "Afirmativa: Mulheres Cis e Trans", 
+                "Afirmativa: Pessoas Negras", 
+                "Afirmativa: LGBTQIAPN+"
+            ], key="novo_tipo_processo")
+        
+        with col2:
+            senioridade = st.selectbox("Senioridade", ["Estágio", "Júnior", "Pleno", "Sênior"], key="novo_senioridade")
+            status = st.selectbox("Status", ["Aberto", "Fechado"], key="novo_status")
+            local = st.selectbox("Local", ["BRASIL", "LATAM", "EUROPA", "GLOBAL"], key="novo_local_processo")
 
-        if st.button("Criar Processo"):
+        if st.button("✨ Criar Processo", use_container_width=True):
             cursor.execute("""
                 INSERT INTO processos (nome, area, tipo, senioridade, status, local)
                 VALUES (%s, %s, %s, %s, %s, %s)
             """, (nome, area, tipo, senioridade, status, local))
             conn.commit()
-            st.success("Processo criado!")
+            st.success("✅ Processo criado com sucesso!")
             st.rerun()
 
-    st.divider()
+    st.markdown("<br>", unsafe_allow_html=True)
 
     # Listar processos
     cursor.execute("SELECT id, nome, area, tipo, senioridade, local, status FROM processos ORDER BY id DESC")
     processos = cursor.fetchall()
 
-    for id_p, nome, area, tipo, senioridade, local, status in processos:
-        col1, col2 = st.columns([4,1])
-        with col1:
-            st.markdown("### {nome}".format(nome=nome))
-            st.caption("{area} | {tipo} | {senioridade} | {local} | {status}".format(area=area, tipo=tipo, senioridade=senioridade, local=local, status=status))
-        with col2:
-            if st.button("Entrar", key=f"entrar_{id_p}"):
-                st.session_state.processo_id = id_p
-                st.session_state.view = "processo"
-                st.rerun()
+    if not processos:
+        st.info("📋 Nenhum processo cadastrado ainda. Crie o primeiro!")
+    else:
+        for id_p, nome, area, tipo, senioridade, local, status in processos:
+            status_badge = "🟢" if status == "Aberto" else "🔴"
+            
+            st.markdown(f"""
+            <div class="card">
+                <h3>{status_badge} {nome}</h3>
+                <p style="color:#9CA3AF; font-size:15px; margin-top:8px;">
+                    <strong>Área:</strong> {area} | 
+                    <strong>Tipo:</strong> {tipo} | 
+                    <strong>Senioridade:</strong> {senioridade} | 
+                    <strong>Local:</strong> {local}
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col1, col2 = st.columns([5, 1])
+            with col2:
+                if st.button("Abrir →", key=f"entrar_{id_p}", use_container_width=True):
+                    st.session_state.processo_id = id_p
+                    st.session_state.view = "processo"
+                    st.rerun()
 
 # =====================================================
 # 📂 PROCESSO
@@ -104,35 +393,43 @@ if st.session_state.view == "home":
 elif st.session_state.view == "processo":
 
     processo_id = st.session_state.processo_id
-    cursor.execute("SELECT nome, status FROM processos WHERE id = %s", (processo_id,))
-    nome_processo, status_processo = cursor.fetchone()
+    cursor.execute("SELECT nome, status, area FROM processos WHERE id = %s", (processo_id,))
+    result = cursor.fetchone()
+    nome_processo, status_processo, area_processo = result
 
-    st.title(f"📂 {nome_processo}")
-
-    if st.button("← Voltar"):
-        st.session_state.view = "home"
-        st.session_state.processo_id = None
-        st.rerun()
-
-    # Botão fechar processo (apenas se aberto)
-    col_esq, col_dir = st.columns([8, 2])
-
-    with col_dir:
+    col_back, col_title, col_close = st.columns([1, 6, 2])
+    
+    with col_back:
+        if st.button("← Voltar"):
+            st.session_state.view = "home"
+            st.session_state.processo_id = None
+            st.rerun()
+    
+    with col_title:
+        st.markdown(f"<h1>📂 {nome_processo}</h1>", unsafe_allow_html=True)
+        st.caption(f"Área: {area_processo}")
+    
+    with col_close:
         if status_processo == "Aberto":
-            if st.button("Fechar Processo"):
+            if st.button("🔒 Fechar Processo"):
                 cursor.execute("UPDATE processos SET status = %s WHERE id = %s", ("Fechado", processo_id))
                 conn.commit()
-                st.success("Processo fechado! 🔒")
+                st.success("Processo fechado!")
                 st.rerun()
     
     st.divider()
 
     # Adicionar candidato (só se aberto)
     if status_processo == "Aberto":
-        with st.expander("➕ Adicionar Candidato"):
-            nome_c = st.text_input("Nome do Candidato", key="novo_nome_c")
-            email_c = st.text_input("Email", key="novo_email_c")
-            if st.button("Adicionar"):
+        with st.expander("➕ Adicionar Candidato", expanded=False):
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                nome_c = st.text_input("Nome do Candidato", key="novo_nome_c")
+            with col2:
+                email_c = st.text_input("Email", key="novo_email_c")
+            
+            if st.button("✨ Adicionar Candidato", use_container_width=True):
                 cursor.execute("SELECT id FROM candidatos WHERE email = %s", (email_c,))
                 existe = cursor.fetchone()
                 if not existe:
@@ -142,24 +439,21 @@ elif st.session_state.view == "processo":
                 else:
                     candidato_id = existe[0]
 
-                # Vínculo ao processo - PostgreSQL syntax
                 cursor.execute("""
                     INSERT INTO processos_candidatos (processo_id, candidato_id) 
                     VALUES (%s, %s) 
                     ON CONFLICT (processo_id, candidato_id) DO NOTHING
                 """, (processo_id, candidato_id))
                 conn.commit()
-                st.success("Candidato registrado!")
+                st.success("✅ Candidato registrado!")
 
-                # Reset seguro dos inputs
                 st.session_state["novo_nome_c"] = ""
                 st.session_state["novo_email_c"] = ""
                 st.rerun()
 
     st.divider()
 
-    # Listar candidatos Vinculados
-        # Listar candidatos vinculados
+    # Listar candidatos vinculados
     cursor.execute("""
         SELECT 
             c.id, 
@@ -177,10 +471,17 @@ elif st.session_state.view == "processo":
 
     candidatos = cursor.fetchall()
 
-    # =========================
-    # 🔎 BUSCA
-    # =========================
-    busca = st.text_input("🔎 Buscar candidato por nome ou email")
+    # Busca e filtros
+    col_search, col_filter = st.columns([2, 1])
+    
+    with col_search:
+        busca = st.text_input("🔎 Buscar candidato", placeholder="Nome ou email...")
+    
+    with col_filter:
+        filtro_status = st.selectbox(
+            "Filtrar por status:",
+            ["Todos", "Pendentes", "Avaliados"]
+        )
 
     if busca:
         candidatos = [
@@ -188,29 +489,18 @@ elif st.session_state.view == "processo":
             if busca.lower() in c[1].lower() or busca.lower() in c[2].lower()
         ]
 
-    # =========================
-    # 🎯 FILTRO POR STATUS
-    # =========================
-    filtro_status = st.radio(
-        "Filtrar candidatos:",
-        ["Todos", "Pendentes", "Avaliados"],
-        horizontal=True
-    )
-
     if filtro_status == "Pendentes":
         candidatos = [c for c in candidatos if c[3] == 0]
-
     elif filtro_status == "Avaliados":
         candidatos = [c for c in candidatos if c[3] > 0]
 
-    # =========================
-    # 📌 ORDENAR (Pendentes primeiro)
-    # =========================
-    candidatos.sort(key=lambda x: x[3])  # 0 (pendente) vem antes
+    candidatos.sort(key=lambda x: x[3])
+
+    st.markdown(f"<h3>👥 Candidatos ({len(candidatos)})</h3>", unsafe_allow_html=True)
+    st.markdown("<br>", unsafe_allow_html=True)
 
     for id_c, nome, email, total_avaliacoes in candidatos:
 
-        # Buscar a última avaliação do candidato neste processo
         cursor.execute("""
             SELECT nota_final, id 
             FROM avaliacoes 
@@ -226,34 +516,38 @@ elif st.session_state.view == "processo":
 
             if nota_final >= 8:
                 status_class = "status-green"
+                status_text = f"✅ Nota Final: {nota_final}"
             elif nota_final >= 6:
                 status_class = "status-yellow"
+                status_text = f"⚠️ Nota Final: {nota_final}"
             else:
                 status_class = "status-red"
+                status_text = f"❌ Nota Final: {nota_final}"
 
-            status_html = '<span class="{status_class}">Nota Final: {nota_final}</span>'.format(status_class=status_class, nota_final=nota_final)
+            status_html = f'<span class="{status_class}">{status_text}</span>'
         else:
-            status_html = '<span class="status-gray">Pendente</span>'
+            status_html = '<span class="status-gray">⏳ Pendente</span>'
 
-        st.markdown("""
+        st.markdown(f"""
             <div class="card">
                 <h3>{nome}</h3>
-                <p style="color:#9CA3AF;">{email}</p>
-                <p>{status_html}</p>
+                <p style="color:#9CA3AF; margin:8px 0;">{email}</p>
+                <p style="margin-top:12px;">{status_html}</p>
             </div>
-        """.format(nome=nome, email=email, status_html=status_html), unsafe_allow_html=True)
-        col1, col2 = st.columns([1,1])
+        """, unsafe_allow_html=True)
+        
+        col1, col2 = st.columns([1, 1])
 
         with col1:
             if avaliacao:
-                if st.button("Ver Detalhes", key=f"det_{id_c}"):
+                if st.button("📊 Ver Detalhes", key=f"det_{id_c}", use_container_width=True):
                     st.session_state.avaliacao_id = avaliacao_id
                     st.session_state.view = "detalhe_avaliacao"
                     st.rerun()
 
         with col2:
             if not avaliacao and status_processo == "Aberto":
-                if st.button("Avaliar", key=f"avaliar_{id_c}"):
+                if st.button("📝 Avaliar", key=f"avaliar_{id_c}", use_container_width=True):
                     st.session_state.candidato_id = id_c
                     st.session_state.view = "avaliar"
                     st.rerun()
@@ -272,184 +566,65 @@ elif st.session_state.view == "avaliar":
 
     cursor.execute("SELECT nome FROM candidatos WHERE id = %s", (candidato_id,))
     nome_candidato = cursor.fetchone()[0]
-    st.title("📝 Avaliação - {}".format(nome_candidato))
+    
+    cursor.execute("SELECT area FROM processos WHERE id = %s", (processo_id,))
+    area_processo = cursor.fetchone()[0]
+    
+    st.markdown(f"<h1>📝 Avaliação - {nome_candidato}</h1>", unsafe_allow_html=True)
+    st.caption(f"Área: {area_processo}")
 
-    # ==============================
-    # Estrutura com peso e obrigatório
-    # ==============================
-
-    estrutura = {
-    "Tratamentos": [
-        {
-            "criterio": "Arquitetura em Camadas (Raw / Staging / Golden)",
-            "descricao": "Raw (dados brutos), Staging (dados tratados e padronizados) e Golden (dados modelados e prontos para consumo analítico).",
-            "peso": 1,
-            "obrigatorio": False
-        },
-        {
-            "criterio": "Criação de Dimensões",
-            "descricao": "Construção de dimensões auxiliares como calendário (ano, mês, trimestre, semana etc.), dimensões descritivas (produto, cliente, canal, status) e tabelas de apoio.",
-            "peso": 2,
-            "obrigatorio": True
-        },
-        {
-            "criterio": "Tratamento de Tipagem e Strings",
-            "descricao": "Conversão adequada de tipos de dados, padronização de datas, TRIM, UPPER/LOWER, garantindo integridade nos joins.",
-            "peso": 2,
-            "obrigatorio": True
-        },
-        {
-            "criterio": "Deduplicação",
-            "descricao": "Tratamento de registros duplicados evitando explosão de métricas e aplicação de regras de priorização.",
-            "peso": 2,
-            "obrigatorio": True
-        },
-        {
-            "criterio": "Padronização de Nomenclatura",
-            "descricao": "Uso de padrão para nomes de tabelas e colunas (snake_case, prefixos fact_/dim_), garantindo consistência.",
-            "peso": 2,
-            "obrigatorio": True
-        },
-        {
-            "criterio": "Normalização de Categorias",
-            "descricao": "Consolidação e padronização de valores categóricos (ex: Google Ads, status etc.).",
-            "peso": 2,
-            "obrigatorio": True
-        },
-        {
-            "criterio": "Avaliação de Hard-Coding",
-            "descricao": "Evitar regras fixas excessivas e preferir tabelas de-para para manutenção e governança.",
-            "peso": 2,
-            "obrigatorio": True
-        },
-        {
-            "criterio": "Modelagem de Dados (Star / Snowflake)",
-            "descricao": "Estruturação com fatos e dimensões bem definidas, relacionamento correto e granularidade clara.",
-            "peso": 3,
-            "obrigatorio": True
-        },
-        {
-            "criterio": "Organização do Dashboard (Medidas e Relacionamentos)",
-            "descricao": "Medidas organizadas, relacionamentos consistentes e uso adequado de cardinalidade e direção de filtro.",
-            "peso": 2,
-            "obrigatorio": True
-        },
-    ],
-
-    "Análises": [
-        {
-            "criterio": "Escolha das Métricas Estratégicas",
-            "descricao": "Definição de KPIs relevantes como Receita, Ticket Médio, CAC, LTV, Conversão e Churn.",
-            "peso": 3,
-            "obrigatorio": True
-        },
-        {
-            "criterio": "Cálculo Correto das Métricas",
-            "descricao": "Implementação correta das fórmulas respeitando granularidade, filtros e contexto.",
-            "peso": 3,
-            "obrigatorio": True
-        },
-        {
-            "criterio": "Evolução dos Indicadores",
-            "descricao": "Apresentação temporal dos KPIs permitindo análise de tendência e sazonalidade.",
-            "peso": 2,
-            "obrigatorio": True
-        },
-        {
-            "criterio": "Segmentação das Métricas",
-            "descricao": "Análise por canal, produto, região ou cliente com gráficos adequados.",
-            "peso": 2,
-            "obrigatorio": True
-        },
-        {
-            "criterio": "Storytelling",
-            "descricao": "Construção de narrativa lógica com destaque de insights e impactos.",
-            "peso": 2,
-            "obrigatorio": True
-        },
-        {
-            "criterio": "Relatório Executivo vs Operacional",
-            "descricao": "Separação clara entre visão estratégica (KPIs principais) e visão exploratória detalhada.",
-            "peso": 2,
-            "obrigatorio": True
-        },
-    ],
-
-    "Visual": [
-        {
-            "criterio": "Organização dos Visuais",
-            "descricao": "Layout limpo, alinhamento consistente, espaçamento adequado e hierarquia visual clara.",
-            "peso": 2,
-            "obrigatorio": True
-        },
-        {
-            "criterio": "Filtros e Segmentadores",
-            "descricao": "Criação estratégica de filtros (data, canal, produto etc.) facilitando navegação.",
-            "peso": 2,
-            "obrigatorio": True
-        },
-        {
-            "criterio": "Paleta de Cores e Tipografia",
-            "descricao": "Uso consistente de cores, contraste adequado e tipografia legível.",
-            "peso": 1,
-            "obrigatorio": True
-        },
-        {
-            "criterio": "Títulos e Unidades de Medida",
-            "descricao": "Títulos claros, unidades visíveis (R$ 10k) e rótulos legíveis.",
-            "peso": 1,
-            "obrigatorio": True
-        },
-    ]
-}
+    # Obter critérios baseados na área
+    estrutura = get_criterios_por_area(area_processo)
 
     soma_ponderada = 0
     soma_pesos = 0
     reprovado_por_obrigatorio = False
 
-    # ==============================
     # Sliders
-    # ==============================
-
     for bloco, criterios in estrutura.items():
         st.divider()
-        st.header(bloco)
+        st.markdown(f"<h2>{bloco}</h2>", unsafe_allow_html=True)
 
         for item in criterios:
             criterio = item["criterio"]
-            descricao = item.get("descricao", "")  # se tiver descrição
+            descricao = item.get("descricao", "")
             peso = item["peso"]
             obrigatorio = item["obrigatorio"]
 
-            key_nota = "{}_{}".format(bloco, criterio)
-            key_just = "just_{}_{}".format(bloco, criterio)
+            key_nota = f"{bloco}_{criterio}"
+            key_just = f"just_{bloco}_{criterio}"
 
-            # Inicializar session_state se não existir
             if key_nota not in st.session_state:
                 st.session_state[key_nota] = 5.0
             if key_just not in st.session_state:
                 st.session_state[key_just] = ""
 
-            # Renderizar o critério com estilo
+            obrigatorio_badge = "🔴 OBRIGATÓRIO" if obrigatorio else "⚪ Opcional"
+            
             st.markdown(f"""
-                <p style="font-size:20px; font-weight:700; margin-bottom:4px;">{criterio}</p>
-                <p style="font-size:15px; color:#D1D5DB; margin:0;">{descricao}</p>
-                <p style="font-size:15px; color:#9CA3AF; margin-top:2px;">Peso: {peso}</p>
+                <div style="background:rgba(255,255,255,0.05); padding:20px; border-radius:16px; margin-bottom:20px; border-left:4px solid {'#ef4444' if obrigatorio else '#6b7280'};">
+                    <p style="font-size:18px; font-weight:700; margin-bottom:8px;">{criterio}</p>
+                    <p style="font-size:14px; color:#D1D5DB; margin-bottom:8px;">{descricao}</p>
+                    <p style="font-size:13px; color:#9CA3AF;">
+                        <strong>Peso:</strong> {peso} | {obrigatorio_badge}
+                    </p>
+                </div>
             """, unsafe_allow_html=True)
 
             nota = st.slider(
-            "🔴 Obrigatório" if obrigatorio else "",
-            0.0,
-            10.0,
-            st.session_state[key_nota],
-            step=0.5,
-            key=key_nota
+                "Nota (0-10)",
+                0.0,
+                10.0,
+                st.session_state[key_nota],
+                step=0.5,
+                key=key_nota
             )
 
             justificativa = st.text_area(
                 "Justificativa",
                 st.session_state[key_just],
-                key=key_just
+                key=key_just,
+                height=100
             )
 
             soma_ponderada += nota * peso
@@ -458,36 +633,44 @@ elif st.session_state.view == "avaliar":
             if obrigatorio and nota < 6:
                 reprovado_por_obrigatorio = True
 
-    # ==============================
     # Resultado
-    # ==============================
-
     nota_final = round(soma_ponderada / soma_pesos, 2)
 
     st.divider()
-    st.subheader("🎯 Resultado Final")
+    st.markdown("<h2>🎯 Resultado Final</h2>", unsafe_allow_html=True)
 
-    st.metric("Nota Final (Ponderada)", nota_final)
+    col_metric1, col_metric2, col_metric3 = st.columns(3)
+    
+    with col_metric1:
+        st.metric("Nota Final (Ponderada)", nota_final)
+    
+    with col_metric2:
+        if nota_final >= 8:
+            st.success("✅ Recomendado")
+        elif nota_final >= 6:
+            st.warning("⚠️ Avaliar melhor")
+        else:
+            st.error("❌ Não recomendado")
+    
+    with col_metric3:
+        if reprovado_por_obrigatorio:
+            st.error("🔴 Reprovado em critério obrigatório")
 
-    if nota_final >= 8:
-        st.success("Recomendado")
-    elif nota_final >= 6:
-        st.warning("Avaliar melhor")
-    else:
-        st.error("Não recomendado")
+    st.divider()
 
-    # ==============================
     # Campos finais
-    # ==============================
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        avaliador = st.text_input("Nome do Avaliador", value=st.session_state.user_email)
+    
+    with col2:
+        st.markdown("<br>", unsafe_allow_html=True)
+    
+    comentario_final = st.text_area("Comentário Final Geral", height=150)
 
-    avaliador = st.text_input("Nome do Avaliador")
-    comentario_final = st.text_area("Comentário Final Geral")
-
-    # ==============================
     # Salvar
-    # ==============================
-
-    if st.button("Salvar Avaliação"):
+    if st.button("💾 Salvar Avaliação", use_container_width=True):
 
         cursor.execute("""
         INSERT INTO avaliacoes
@@ -512,7 +695,8 @@ elif st.session_state.view == "avaliar":
 
         conn.commit()
 
-        st.success("Avaliação salva com sucesso!")
+        st.success("✅ Avaliação salva com sucesso!")
+        st.balloons()
         st.session_state.view = "processo"
         st.rerun()
 
@@ -537,11 +721,31 @@ elif st.session_state.view == "detalhe_avaliacao":
     if avaliacao:
         nota_final, avaliador, comentario_final = avaliacao
 
-        st.title("📊 Detalhe da Avaliação")
-        st.metric("Nota Final", nota_final)
-        st.write("**Avaliador: {}**".format(avaliador))
-        st.write("**Comentário Geral:**")
-        st.write(comentario_final)
+        st.markdown("<h1>📊 Detalhe da Avaliação</h1>", unsafe_allow_html=True)
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric("Nota Final", nota_final)
+        
+        with col2:
+            if nota_final >= 8:
+                st.success("✅ Recomendado")
+            elif nota_final >= 6:
+                st.warning("⚠️ Avaliar melhor")
+            else:
+                st.error("❌ Não recomendado")
+        
+        st.markdown(f"**👤 Avaliador:** {avaliador}")
+        
+        st.divider()
+        
+        st.markdown("### 💬 Comentário Geral")
+        st.markdown(f"""
+        <div style="background:rgba(255,255,255,0.05); padding:20px; border-radius:16px; border-left:4px solid #3B82F6;">
+            {comentario_final if comentario_final else "Sem comentário"}
+        </div>
+        """, unsafe_allow_html=True)
 
         st.divider()
 
@@ -558,8 +762,13 @@ elif st.session_state.view == "detalhe_avaliacao":
         bloco_atual = None
         for bloco, criterio, nota, justificativa in criterios:
             if bloco != bloco_atual:
-                st.subheader(bloco)
+                st.markdown(f"<h3>{bloco}</h3>", unsafe_allow_html=True)
                 bloco_atual = bloco
-            st.write("**{}** — Nota: {}".format(criterio, nota))
-            st.write("Justificativa: {}".format(justificativa))
-            st.divider()
+            
+            st.markdown(f"""
+            <div style="background:rgba(255,255,255,0.05); padding:16px; border-radius:12px; margin-bottom:16px;">
+                <p style="font-size:16px; font-weight:600; margin-bottom:8px;">{criterio}</p>
+                <p style="color:#10b981; font-size:18px; font-weight:700; margin-bottom:8px;">Nota: {nota}</p>
+                <p style="color:#D1D5DB; font-size:14px;"><strong>Justificativa:</strong> {justificativa if justificativa else "Sem justificativa"}</p>
+            </div>
+            """, unsafe_allow_html=True)
