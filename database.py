@@ -79,18 +79,8 @@ def init_db():
     )
     """)
     conn.commit()
-    
-    # RESET: Limpar todos os dados e inserir apenas admin
-    print("Resetando tabela allowed_emails...")
-    try:
-        cursor.execute("TRUNCATE TABLE allowed_emails RESTART IDENTITY CASCADE")
-        conn.commit()
-        print("Tabela limpa com sucesso.")
-    except Exception as e:
-        conn.rollback()
-        print(f"Erro ao limpar tabela: {e}")
 
-    # Inserir apenas admin padrão
+    # Inserir admin padrão se não existir (não trunca mais)
     try:
         cursor.execute("""
         INSERT INTO allowed_emails (email, role, added_by)
@@ -98,7 +88,7 @@ def init_db():
         ON CONFLICT (email) DO UPDATE SET role = 'admin'
         """)
         conn.commit()
-        print("Admin padrão criado: admin@artefact.com")
+        print("Admin padrão garantido: admin@artefact.com")
     except Exception as e:
         conn.rollback()
         print(f"Erro ao criar admin: {e}")
