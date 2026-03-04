@@ -232,59 +232,169 @@ def reset_avaliacao(estrutura):
 # =====================================================
 if not st.session_state.authenticated:
     
+    # Logo e título animado
     st.markdown("""
-    <div style="text-align:center; margin-top: 60px;">
+    <div style="text-align:center; margin-top: 80px; margin-bottom: 60px;">
+        <div style="
+            display: inline-block;
+            background: linear-gradient(135deg, rgba(59,130,246,0.2), rgba(147,51,234,0.2));
+            padding: 30px;
+            border-radius: 50%;
+            margin-bottom: 30px;
+            box-shadow: 0px 20px 60px rgba(59,130,246,0.4);
+            animation: pulse 2s ease-in-out infinite;
+        ">
+            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 2L2 7L12 12L22 7L12 2Z" fill="url(#gradient1)" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M2 17L12 22L22 17" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M2 12L12 17L22 12" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <defs>
+                    <linearGradient id="gradient1" x1="2" y1="2" x2="22" y2="12">
+                        <stop offset="0%" style="stop-color:#60A5FA;stop-opacity:1" />
+                        <stop offset="100%" style="stop-color:#A78BFA;stop-opacity:1" />
+                    </linearGradient>
+                </defs>
+            </svg>
+        </div>
         <h1 style="
-            font-size:56px;
-            font-weight:800;
-            letter-spacing:-2px;
-            background: linear-gradient(90deg, #60A5FA, #A78BFA, #F472B6);
+            font-size:64px;
+            font-weight:900;
+            letter-spacing:-3px;
+            background: linear-gradient(135deg, #60A5FA 0%, #A78BFA 50%, #F472B6 100%);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            margin-bottom:16px;
+            margin-bottom:20px;
+            text-shadow: 0px 4px 20px rgba(96,165,250,0.3);
         ">
-            Sistema de Avaliação Técnica
+            Artefact Evaluation
         </h1>
-        <p style="font-size:18px; color:rgba(255,255,255,0.7); margin-bottom:48px;">
-            Acesso restrito a colaboradores Artefact
+        <p style="font-size:20px; color:rgba(255,255,255,0.8); margin-bottom:10px; font-weight:500;">
+            Sistema de Avaliação Técnica
+        </p>
+        <p style="font-size:16px; color:rgba(255,255,255,0.5);">
+            🔐 Acesso restrito a colaboradores autorizados
         </p>
     </div>
+    
+    <style>
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .login-container {
+            animation: slideUp 0.6s ease-out;
+        }
+    </style>
     """, unsafe_allow_html=True)
     
-    col1, col2, col3 = st.columns([1, 2, 1])
+    # Container centralizado para o login
+    col1, col2, col3 = st.columns([1, 1.5, 1])
     
     with col2:
-        st.markdown('<div class="login-card">', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="login-container" style="
+            background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(147,51,234,0.15));
+            backdrop-filter: blur(30px);
+            padding: 50px 40px;
+            border-radius: 32px;
+            border: 2px solid rgba(255,255,255,0.2);
+            box-shadow: 0px 20px 70px rgba(0,0,0,0.5), inset 0px 1px 0px rgba(255,255,255,0.1);
+        ">
+            <div style="text-align:center; margin-bottom:35px;">
+                <h2 style="
+                    font-size:32px;
+                    font-weight:700;
+                    color:white;
+                    margin-bottom:12px;
+                ">
+                    Bem-vindo de volta! 👋
+                </h2>
+                <p style="font-size:15px; color:rgba(255,255,255,0.7);">
+                    Entre com seu email corporativo
+                </p>
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
         
-        st.markdown("### 🔐 Login")
-        st.markdown("Digite seu email corporativo @artefact.com")
+        # Input de email com estilo
+        st.markdown("""
+        <div style="margin-bottom:20px;">
+            <label style="
+                display:block;
+                font-size:14px;
+                font-weight:600;
+                color:rgba(255,255,255,0.9);
+                margin-bottom:8px;
+            ">
+                📧 Email Corporativo
+            </label>
+        </div>
+        """, unsafe_allow_html=True)
         
         email_input = st.text_input(
-            "Email", 
+            "Email",
             placeholder="seu.nome@artefact.com",
             key="login_email",
             label_visibility="collapsed"
         )
         
-        col_btn1, col_btn2 = st.columns([1, 1])
+        st.markdown("<div style='margin-bottom:25px;'></div>", unsafe_allow_html=True)
         
-        with col_btn1:
-            if st.button("Entrar", use_container_width=True):
-                if is_email_allowed(email_input):
-                    st.session_state.authenticated = True
-                    st.session_state.user_email = email_input
-                    st.success(f"✅ Bem-vindo(a)!")
-                    st.rerun()
-                else:
-                    st.error("❌ Acesso negado. Apenas emails @artefact.com são permitidos.")
+        # Botão de login estilizado
+        if st.button("🚀 Entrar no Sistema", use_container_width=True, key="login_btn"):
+            if is_email_allowed(email_input):
+                st.session_state.authenticated = True
+                st.session_state.user_email = email_input
+                st.success(f"✅ Bem-vindo(a), {email_input.split('@')[0]}!")
+                st.balloons()
+                st.rerun()
+            else:
+                st.error("❌ Acesso negado. Apenas emails @artefact.com são permitidos.")
         
-        st.markdown('</div>', unsafe_allow_html=True)
-        
+        # Informações adicionais
         st.markdown("""
-        <div style="text-align:center; margin-top:32px; color:rgba(255,255,255,0.5); font-size:14px;">
-            <p>🔒 Sistema seguro e confidencial</p>
+        <div style="
+            margin-top:30px;
+            padding:20px;
+            background:rgba(59,130,246,0.1);
+            border-radius:16px;
+            border-left:4px solid #3B82F6;
+        ">
+            <p style="font-size:13px; color:rgba(255,255,255,0.8); margin:0;">
+                <strong>ℹ️ Informação:</strong><br>
+                Apenas emails com domínio <strong>@artefact.com</strong> têm acesso autorizado ao sistema.
+            </p>
         </div>
         """, unsafe_allow_html=True)
+    
+    # Footer
+    st.markdown("""
+    <div style="
+        text-align:center;
+        margin-top:80px;
+        padding-top:30px;
+        border-top:1px solid rgba(255,255,255,0.1);
+    ">
+        <p style="color:rgba(255,255,255,0.4); font-size:13px; margin-bottom:8px;">
+            🔒 Conexão segura e criptografada
+        </p>
+        <p style="color:rgba(255,255,255,0.3); font-size:12px;">
+            © 2026 Artefact - Todos os direitos reservados
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
     
     st.stop()
 
