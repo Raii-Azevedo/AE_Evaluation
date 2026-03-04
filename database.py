@@ -68,30 +68,37 @@ def init_db():
     )
     """)
 
+    # Criar tabela allowed_emails com estrutura nova
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS allowed_emails (
         id SERIAL PRIMARY KEY,
         email TEXT UNIQUE NOT NULL,
-        role TEXT DEFAULT 'user',  -- 'admin', 'user', 'viewer'
+        role TEXT DEFAULT 'user',
         added_by TEXT,
         added_at TIMESTAMP DEFAULT NOW()
     )
     """)
 
-    # Migrar dados existentes de is_admin para role
-    cursor.execute("""
-    DO $$
-    BEGIN
-        IF EXISTS (SELECT 1 FROM information_schema.columns
-                   WHERE table_name='allowed_emails' AND column_name='is_admin') THEN
+    # Tentar migrar coluna is_admin para role se existir
+    try:
+        cursor.execute("""
+        SELECT column_name FROM information_schema.columns
+        WHERE table_name='allowed_emails' AND column_name='is_admin'
+        """)
+        if cursor.fetchone():
+            # Coluna is_admin existe, fazer migração
+            cursor.execute("""
             UPDATE allowed_emails SET role = CASE
                 WHEN is_admin = TRUE THEN 'admin'
                 ELSE 'user'
-            END;
-            ALTER TABLE allowed_emails DROP COLUMN IF EXISTS is_admin;
-        END IF;
-    END $$;
-    """)
+            END
+            WHERE role IS NULL OR role = ''
+            """)
+            cursor.execute("ALTER TABLE allowed_emails DROP COLUMN is_admin")
+            conn.commit()
+    except:
+        # Coluna já foi migrada ou não existe
+        pass
 
     # Inserir admin padrão se não existir
     cursor.execute("""
