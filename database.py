@@ -68,62 +68,37 @@ def init_db():
     )
     """)
 
-    # Criar tabela allowed_emails com estrutura nova
+    # RESET: Dropar e recriar tabela allowed_emails com estrutura limpa
+    print("Recriando tabela allowed_emails...")
+    
+    try:
+        cursor.execute("DROP TABLE IF EXISTS allowed_emails CASCADE")
+        conn.commit()
+        print("Tabela antiga removida.")
+    except Exception as e:
+        conn.rollback()
+        print(f"Erro ao dropar tabela: {e}")
+    
+    # Criar tabela allowed_emails com estrutura nova e limpa
     cursor.execute("""
-    CREATE TABLE IF NOT EXISTS allowed_emails (
+    CREATE TABLE allowed_emails (
         id SERIAL PRIMARY KEY,
         email TEXT UNIQUE NOT NULL,
-        role TEXT DEFAULT 'user',
+        role TEXT DEFAULT 'user' CHECK (role IN ('admin', 'user', 'viewer')),
         added_by TEXT,
         added_at TIMESTAMP DEFAULT NOW()
     )
     """)
     conn.commit()
+    print("Tabela allowed_emails criada com sucesso.")
 
-    # Tentar migrar coluna is_admin para role se existir
-    try:
-        cursor.execute("""
-        SELECT column_name FROM information_schema.columns
-        WHERE table_name='allowed_emails' AND column_name='is_admin'
-        """)
-        if cursor.fetchone():
-            # Coluna is_admin existe, fazer migração
-            cursor.execute("""
-            UPDATE allowed_emails SET role = CASE
-                WHEN is_admin = TRUE THEN 'admin'
-                ELSE 'user'
-            END
-            """)
-            cursor.execute("ALTER TABLE allowed_emails DROP COLUMN is_admin")
-            conn.commit()
-    except Exception as e:
-        # Rollback em caso de erro e continuar
-        conn.rollback()
-        print(f"Migration note: {e}")
-
-    # Garantir que todos os usuários têm um role válido
-    try:
-        cursor.execute("""
-        UPDATE allowed_emails
-        SET role = 'user'
-        WHERE role IS NULL OR role = '' OR role NOT IN ('admin', 'user', 'viewer')
-        """)
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        print(f"Role update note: {e}")
-
-    # Inserir admin padrão se não existir
-    try:
-        cursor.execute("""
-        INSERT INTO allowed_emails (email, role, added_by)
-        VALUES ('admin@artefact.com', 'admin', 'system')
-        ON CONFLICT (email) DO UPDATE SET role = 'admin'
-        """)
-        conn.commit()
-    except Exception as e:
-        conn.rollback()
-        print(f"Admin user note: {e}")
+    # Inserir apenas admin padrão
+    cursor.execute("""
+    INSERT INTO allowed_emails (email, role, added_by)
+    VALUES ('admin@artefact.com', 'admin', 'system')
+    """)
+    conn.commit()
+    print("Admin padrão criado: admin@artefact.com")
 
     cursor.close()
     conn.close()
