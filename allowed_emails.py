@@ -1,17 +1,12 @@
-# Lista de emails autorizados a acessar o sistema
-# Apenas emails @artefact.com podem fazer login
+# Sistema de gerenciamento de emails autorizados
+# Agora usando banco de dados para armazenar emails permitidos
 
-ALLOWED_EMAILS = [
-    "raissa.azevedo@artefact.com",
-    "brenda.antunes@artefact.com",
-    "henrique.toledo@artefact.com",
-    # Adicione mais emails conforme necessário
-]
+from database import get_connection
 
 def is_email_allowed(email):
     """
     Verifica se o email está autorizado a acessar o sistema.
-    Aceita qualquer email @artefact.com ou emails específicos na lista.
+    Aceita qualquer email @artefact.com ou emails específicos no banco de dados.
     """
     if not email:
         return False
@@ -22,8 +17,86 @@ def is_email_allowed(email):
     if email.endswith("@artefact.com"):
         return True
     
-    # Verifica se o email está na lista de permitidos
-    if email in [e.lower() for e in ALLOWED_EMAILS]:
-        return True
+    # Verifica se o email está na lista de permitidos no banco
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT id FROM allowed_emails WHERE LOWER(email) = %s", (email,))
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return result is not None
+    except:
+        return False
+
+def is_admin(email):
+    """
+    Verifica se o email tem privilégios de administrador.
+    """
+    if not email:
+        return False
     
-    return False
+    email = email.lower().strip()
+    
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT is_admin FROM allowed_emails WHERE LOWER(email) = %s", (email,))
+        result = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return result and result[0]
+    except:
+        return False
+
+def add_allowed_email(email, is_admin_user=False, added_by=None):
+    """
+    Adiciona um email à lista de permitidos.
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO allowed_emails (email, is_admin, added_by)
+            VALUES (%s, %s, %s)
+            ON CONFLICT (email) DO UPDATE SET is_admin = EXCLUDED.is_admin
+        """, (email.lower().strip(), is_admin_user, added_by))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Erro ao adicionar email: {e}")
+        return False
+
+def remove_allowed_email(email):
+    """
+    Remove um email da lista de permitidos.
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM allowed_emails WHERE LOWER(email) = %s", (email.lower().strip(),))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Erro ao remover email: {e}")
+        return False
+
+def get_all_allowed_emails():
+    """
+    Retorna todos os emails permitidos.
+    """
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT email, is_admin, added_by, added_at FROM allowed_emails ORDER BY added_at DESC")
+        results = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        return results
+    except Exception as e:
+        print(f"Erro ao buscar emails: {e}")
+        return []

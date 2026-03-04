@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from database import init_db, get_connection
-from allowed_emails import is_email_allowed
+from allowed_emails import is_email_allowed, is_admin, add_allowed_email, remove_allowed_email, get_all_allowed_emails
 from criterios_areas import get_criterios_por_area, get_areas_disponiveis
 
 st.set_page_config(page_title="Sistema de Avaliação Técnica", layout="wide", initial_sidebar_state="collapsed")
@@ -374,18 +374,34 @@ if not st.session_state.authenticated:
     st.stop()
 
 # =====================================================
-# HEADER COM LOGOUT
+# HEADER COM LOGOUT E NAVEGAÇÃO
 # =====================================================
-col_header1, col_header2 = st.columns([4, 1])
+col_h1, col_h2, col_h3, col_h4, col_h5 = st.columns([2, 1, 1, 1, 1])
 
-with col_header1:
+with col_h1:
     st.markdown(f"""
     <p style="color:rgba(255,255,255,0.7); font-size:14px; margin-top:16px;">
-        👤 Logado como: <strong>{st.session_state.user_email}</strong>
+        👤 <strong>{st.session_state.user_email}</strong>
     </p>
     """, unsafe_allow_html=True)
 
-with col_header2:
+with col_h2:
+    if st.button("🏠 Início", key="nav_home"):
+        st.session_state.view = "home"
+        st.rerun()
+
+with col_h3:
+    if st.button("📊 Estatísticas", key="nav_stats"):
+        st.session_state.view = "statistics"
+        st.rerun()
+
+with col_h4:
+    if is_admin(st.session_state.user_email):
+        if st.button("⚙️ Admin", key="nav_admin"):
+            st.session_state.view = "admin"
+            st.rerun()
+
+with col_h5:
     if st.button("🚪 Sair", key="logout_btn"):
         st.session_state.authenticated = False
         st.session_state.user_email = None
@@ -857,3 +873,307 @@ elif st.session_state.view == "detalhe_avaliacao":
                 <p style="color:#D1D5DB; font-size:14px;"><strong>Justificativa:</strong> {justificativa if justificativa else "Sem justificativa"}</p>
             </div>
             """, unsafe_allow_html=True)
+
+# =====================================================
+# 📊 ESTATÍSTICAS
+# =====================================================
+elif st.session_state.view == "statistics":
+    
+    st.markdown("""
+    <h1 style="
+        text-align:center;
+        font-size:48px;
+        font-weight:700;
+        letter-spacing:-1.5px;
+        background: linear-gradient(90deg, #60A5FA, #A78BFA, #F472B6);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom:40px;
+    ">
+        📊 ESTATÍSTICAS DO SISTEMA
+    </h1>
+    """, unsafe_allow_html=True)
+    
+    # Estatísticas gerais
+    cursor.execute("SELECT COUNT(*) FROM processos")
+    total_processos = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM processos WHERE status = 'Aberto'")
+    processos_abertos = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM candidatos")
+    total_candidatos = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM avaliacoes")
+    total_avaliacoes = cursor.fetchone()[0]
+    
+    cursor.execute("""
+        SELECT COUNT(DISTINCT c.id)
+        FROM candidatos c
+        LEFT JOIN avaliacoes a ON c.id = a.candidato_id
+        WHERE a.id IS NULL
+    """)
+    candidatos_pendentes = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT AVG(nota_final) FROM avaliacoes")
+    media_geral = cursor.fetchone()[0]
+    media_geral = round(float(media_geral), 2) if media_geral else 0
+    
+    # Cards de estatísticas
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.markdown(f"""
+        <div class="card">
+            <h2 style="color:#60A5FA; margin-bottom:16px;">📋 Processos</h2>
+            <p style="font-size:48px; font-weight:800; margin:20px 0;">{total_processos}</p>
+            <p style="color:#9CA3AF;">Total de processos</p>
+            <p style="color:#10b981; font-weight:600; margin-top:12px;">🟢 {processos_abertos} abertos</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown(f"""
+        <div class="card">
+            <h2 style="color:#A78BFA; margin-bottom:16px;">👥 Candidatos</h2>
+            <p style="font-size:48px; font-weight:800; margin:20px 0;">{total_candidatos}</p>
+            <p style="color:#9CA3AF;">Total de candidatos</p>
+            <p style="color:#f59e0b; font-weight:600; margin-top:12px;">⏳ {candidatos_pendentes} pendentes</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col3:
+        st.markdown(f"""
+        <div class="card">
+            <h2 style="color:#F472B6; margin-bottom:16px;">✅ Avaliações</h2>
+            <p style="font-size:48px; font-weight:800; margin:20px 0;">{total_avaliacoes}</p>
+            <p style="color:#9CA3AF;">Total de avaliações</p>
+            <p style="color:#10b981; font-weight:600; margin-top:12px;">📈 Média: {media_geral}</p>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    st.divider()
+    
+    # Estatísticas por processo
+    st.markdown("<h2>📊 Estatísticas por Processo</h2>", unsafe_allow_html=True)
+    
+    cursor.execute("""
+        SELECT
+            p.nome,
+            p.area,
+            p.status,
+            COUNT(DISTINCT pc.candidato_id) as total_candidatos,
+            COUNT(DISTINCT a.id) as total_avaliacoes,
+            AVG(a.nota_final) as media_notas
+        FROM processos p
+        LEFT JOIN processos_candidatos pc ON p.id = pc.processo_id
+        LEFT JOIN avaliacoes a ON p.id = a.processo_id
+        GROUP BY p.id, p.nome, p.area, p.status
+        ORDER BY p.id DESC
+    """)
+    
+    processos_stats = cursor.fetchall()
+    
+    if processos_stats:
+        for nome, area, status, total_cand, total_aval, media in processos_stats:
+            media_formatted = round(float(media), 2) if media else 0
+            pendentes = total_cand - total_aval
+            
+            status_badge = "🟢" if status == "Aberto" else "🔴"
+            
+            st.markdown(f"""
+            <div class="card">
+                <h3>{status_badge} {nome}</h3>
+                <p style="color:#9CA3AF; margin:8px 0;">Área: {area}</p>
+                <div style="display:flex; gap:24px; margin-top:16px;">
+                    <div>
+                        <p style="font-size:24px; font-weight:700; color:#60A5FA;">{total_cand}</p>
+                        <p style="color:#9CA3AF; font-size:13px;">Candidatos</p>
+                    </div>
+                    <div>
+                        <p style="font-size:24px; font-weight:700; color:#10b981;">{total_aval}</p>
+                        <p style="color:#9CA3AF; font-size:13px;">Avaliados</p>
+                    </div>
+                    <div>
+                        <p style="font-size:24px; font-weight:700; color:#f59e0b;">{pendentes}</p>
+                        <p style="color:#9CA3AF; font-size:13px;">Pendentes</p>
+                    </div>
+                    <div>
+                        <p style="font-size:24px; font-weight:700; color:#F472B6;">{media_formatted}</p>
+                        <p style="color:#9CA3AF; font-size:13px;">Média</p>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.info("📋 Nenhum processo cadastrado ainda.")
+    
+    st.divider()
+    
+    # Top candidatos
+    st.markdown("<h2>🏆 Top 10 Candidatos</h2>", unsafe_allow_html=True)
+    
+    cursor.execute("""
+        SELECT
+            c.nome,
+            c.email,
+            MAX(a.nota_final) as melhor_nota,
+            COUNT(a.id) as num_avaliacoes
+        FROM candidatos c
+        JOIN avaliacoes a ON c.id = a.candidato_id
+        GROUP BY c.id, c.nome, c.email
+        ORDER BY MAX(a.nota_final) DESC
+        LIMIT 10
+    """)
+    
+    top_candidatos = cursor.fetchall()
+    
+    if top_candidatos:
+        for idx, (nome, email, nota, num_aval) in enumerate(top_candidatos, 1):
+            medal = "🥇" if idx == 1 else "🥈" if idx == 2 else "🥉" if idx == 3 else f"{idx}º"
+            
+            if nota >= 8:
+                nota_color = "#10b981"
+            elif nota >= 6:
+                nota_color = "#f59e0b"
+            else:
+                nota_color = "#ef4444"
+            
+            st.markdown(f"""
+            <div style="
+                background:rgba(255,255,255,0.05);
+                padding:16px 24px;
+                border-radius:12px;
+                margin-bottom:12px;
+                display:flex;
+                justify-content:space-between;
+                align-items:center;
+            ">
+                <div>
+                    <p style="font-size:20px; font-weight:700; margin:0;">{medal} {nome}</p>
+                    <p style="color:#9CA3AF; font-size:14px; margin:4px 0 0 0;">{email}</p>
+                </div>
+                <div style="text-align:right;">
+                    <p style="font-size:32px; font-weight:800; color:{nota_color}; margin:0;">{nota}</p>
+                    <p style="color:#9CA3AF; font-size:12px; margin:4px 0 0 0;">{num_aval} avaliações</p>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+    else:
+        st.info("📋 Nenhuma avaliação realizada ainda.")
+
+# =====================================================
+# ⚙️ ADMIN - GERENCIAR EMAILS
+# =====================================================
+elif st.session_state.view == "admin":
+    
+    if not is_admin(st.session_state.user_email):
+        st.error("❌ Acesso negado. Apenas administradores podem acessar esta página.")
+        st.stop()
+    
+    st.markdown("""
+    <h1 style="
+        text-align:center;
+        font-size:48px;
+        font-weight:700;
+        letter-spacing:-1.5px;
+        background: linear-gradient(90deg, #60A5FA, #A78BFA, #F472B6);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        margin-bottom:40px;
+    ">
+        ⚙️ PAINEL DE ADMINISTRAÇÃO
+    </h1>
+    """, unsafe_allow_html=True)
+    
+    st.markdown("<h2>📧 Gerenciar Emails Autorizados</h2>", unsafe_allow_html=True)
+    
+    # Adicionar novo email
+    with st.expander("➕ Adicionar Novo Email", expanded=False):
+        col1, col2 = st.columns([3, 1])
+        
+        with col1:
+            new_email = st.text_input("Email", placeholder="usuario@exemplo.com", key="new_email_input")
+        
+        with col2:
+            is_admin_user = st.checkbox("Admin", key="new_email_admin")
+        
+        if st.button("✨ Adicionar Email", use_container_width=True):
+            if new_email:
+                if add_allowed_email(new_email, is_admin_user, st.session_state.user_email):
+                    st.success(f"✅ Email {new_email} adicionado com sucesso!")
+                    st.rerun()
+                else:
+                    st.error("❌ Erro ao adicionar email.")
+            else:
+                st.warning("⚠️ Por favor, insira um email válido.")
+    
+    st.divider()
+    
+    # Listar emails autorizados
+    st.markdown("<h3>📋 Emails Autorizados</h3>", unsafe_allow_html=True)
+    
+    allowed_emails = get_all_allowed_emails()
+    
+    if allowed_emails:
+        for email, is_admin_flag, added_by, added_at in allowed_emails:
+            admin_badge = "👑 ADMIN" if is_admin_flag else "👤 USER"
+            admin_color = "#F472B6" if is_admin_flag else "#60A5FA"
+            
+            st.markdown(f"""
+            <div class="card">
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div>
+                        <h3 style="margin:0;">{email}</h3>
+                        <p style="color:#9CA3AF; font-size:14px; margin:8px 0 0 0;">
+                            Adicionado por: {added_by if added_by else "Sistema"} | {added_at.strftime('%d/%m/%Y %H:%M') if added_at else "N/A"}
+                        </p>
+                    </div>
+                    <div style="text-align:right;">
+                        <span style="
+                            background:{admin_color}20;
+                            color:{admin_color};
+                            padding:8px 16px;
+                            border-radius:12px;
+                            font-weight:700;
+                            font-size:14px;
+                        ">{admin_badge}</span>
+                    </div>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            col1, col2 = st.columns([5, 1])
+            
+            with col2:
+                if email != "admin@artefact.com":  # Proteger admin principal
+                    if st.button("🗑️ Remover", key=f"remove_{email}", use_container_width=True):
+                        if remove_allowed_email(email):
+                            st.success(f"✅ Email {email} removido!")
+                            st.rerun()
+                        else:
+                            st.error("❌ Erro ao remover email.")
+    else:
+        st.info("📋 Nenhum email cadastrado no sistema.")
+    
+    st.divider()
+    
+    # Informações do sistema
+    st.markdown("<h3>ℹ️ Informações do Sistema</h3>", unsafe_allow_html=True)
+    
+    st.markdown("""
+    <div style="
+        background:rgba(59,130,246,0.1);
+        padding:20px;
+        border-radius:16px;
+        border-left:4px solid #3B82F6;
+    ">
+        <p style="font-size:14px; color:rgba(255,255,255,0.9); margin:0;">
+            <strong>🔐 Política de Acesso:</strong><br><br>
+            • Todos os emails com domínio <strong>@artefact.com</strong> têm acesso automático ao sistema<br>
+            • Emails de outros domínios precisam ser adicionados manualmente nesta página<br>
+            • Apenas administradores podem gerenciar a lista de emails autorizados<br>
+            • O email <strong>admin@artefact.com</strong> é protegido e não pode ser removido
+        </p>
+    </div>
+    """, unsafe_allow_html=True)

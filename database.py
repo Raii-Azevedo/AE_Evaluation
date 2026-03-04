@@ -68,6 +68,23 @@ def init_db():
     )
     """)
 
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS allowed_emails (
+        id SERIAL PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        is_admin BOOLEAN DEFAULT FALSE,
+        added_by TEXT,
+        added_at TIMESTAMP DEFAULT NOW()
+    )
+    """)
+
+    # Inserir admin padrão se não existir
+    cursor.execute("""
+    INSERT INTO allowed_emails (email, is_admin, added_by)
+    VALUES ('admin@artefact.com', TRUE, 'system')
+    ON CONFLICT (email) DO NOTHING
+    """)
+
     conn.commit()
     cursor.close()
     conn.close()
