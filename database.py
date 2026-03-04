@@ -68,37 +68,40 @@ def init_db():
     )
     """)
 
-    # RESET: Dropar e recriar tabela allowed_emails com estrutura limpa
-    print("Recriando tabela allowed_emails...")
-    
-    try:
-        cursor.execute("DROP TABLE IF EXISTS allowed_emails CASCADE")
-        conn.commit()
-        print("Tabela antiga removida.")
-    except Exception as e:
-        conn.rollback()
-        print(f"Erro ao dropar tabela: {e}")
-    
-    # Criar tabela allowed_emails com estrutura nova e limpa
+    # Criar tabela allowed_emails se não existir
     cursor.execute("""
-    CREATE TABLE allowed_emails (
+    CREATE TABLE IF NOT EXISTS allowed_emails (
         id SERIAL PRIMARY KEY,
         email TEXT UNIQUE NOT NULL,
-        role TEXT DEFAULT 'user' CHECK (role IN ('admin', 'user', 'viewer')),
+        role TEXT DEFAULT 'user',
         added_by TEXT,
         added_at TIMESTAMP DEFAULT NOW()
     )
     """)
     conn.commit()
-    print("Tabela allowed_emails criada com sucesso.")
+    
+    # RESET: Limpar todos os dados e inserir apenas admin
+    print("Resetando tabela allowed_emails...")
+    try:
+        cursor.execute("TRUNCATE TABLE allowed_emails RESTART IDENTITY CASCADE")
+        conn.commit()
+        print("Tabela limpa com sucesso.")
+    except Exception as e:
+        conn.rollback()
+        print(f"Erro ao limpar tabela: {e}")
 
     # Inserir apenas admin padrão
-    cursor.execute("""
-    INSERT INTO allowed_emails (email, role, added_by)
-    VALUES ('admin@artefact.com', 'admin', 'system')
-    """)
-    conn.commit()
-    print("Admin padrão criado: admin@artefact.com")
+    try:
+        cursor.execute("""
+        INSERT INTO allowed_emails (email, role, added_by)
+        VALUES ('admin@artefact.com', 'admin', 'system')
+        ON CONFLICT (email) DO UPDATE SET role = 'admin'
+        """)
+        conn.commit()
+        print("Admin padrão criado: admin@artefact.com")
+    except Exception as e:
+        conn.rollback()
+        print(f"Erro ao criar admin: {e}")
 
     cursor.close()
     conn.close()
