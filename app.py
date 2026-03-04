@@ -303,18 +303,6 @@ if not st.session_state.authenticated:
     col1, col2, col3 = st.columns([1, 1.5, 1])
     
     with col2:
-        st.markdown("""
-        <div class="login-container" style="
-            background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(147,51,234,0.15));
-            backdrop-filter: blur(30px);
-            padding: 50px 40px;
-            border-radius: 32px;
-            border: 2px solid rgba(255,255,255,0.2);
-            box-shadow: 0px 20px 70px rgba(0,0,0,0.5), inset 0px 1px 0px rgba(255,255,255,0.1);
-        ">
-        </div>
-        """, unsafe_allow_html=True)
-        
         # Input de email com estilo
         st.markdown("""
         <div style="margin-bottom:20px; margin-top:20px;">
