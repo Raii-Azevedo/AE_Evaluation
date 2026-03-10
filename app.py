@@ -787,9 +787,6 @@ elif st.session_state.view == "processo":
                 return_connection(conn)
                 clear_candidato_cache()
                 st.success("✅ Candidato registrado!")
-
-                st.session_state["novo_nome_c"] = ""
-                st.session_state["novo_email_c"] = ""
                 st.rerun()
 
     st.divider()
