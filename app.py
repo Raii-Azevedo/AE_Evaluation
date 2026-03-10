@@ -771,9 +771,9 @@ elif st.session_state.view == "processo":
                 cursor.execute("SELECT id FROM candidatos WHERE email = %s", (email_c,))
                 existe = cursor.fetchone()
                 if not existe:
-                    cursor.execute("INSERT INTO candidatos (nome, email) VALUES (%s, %s)", (nome_c, email_c))
+                    cursor.execute("INSERT INTO candidatos (nome, email) VALUES (%s, %s) RETURNING id", (nome_c, email_c))
+                    candidato_id = cursor.fetchone()[0]
                     conn.commit()
-                    candidato_id = cursor.lastrowid
                 else:
                     candidato_id = existe[0]
 
