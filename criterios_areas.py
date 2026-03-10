@@ -1,6 +1,8 @@
 # Critérios de avaliação por área
 # Cada área tem seus próprios critérios de avaliação
 
+import streamlit as st
+
 CRITERIOS_POR_AREA = {
     "Analytics Engineer": {
         "Tratamentos": [
@@ -135,6 +137,7 @@ CRITERIOS_POR_AREA = {
     # },
 }
 
+@st.cache_data
 def get_criterios_por_area(area):
     """
     Retorna os critérios de avaliação para uma área específica.
@@ -142,6 +145,7 @@ def get_criterios_por_area(area):
     """
     return CRITERIOS_POR_AREA.get(area, CRITERIOS_POR_AREA["Analytics Engineer"])
 
+@st.cache_data
 def get_areas_disponiveis():
     """
     Retorna a lista de áreas disponíveis para avaliação.

@@ -1,14 +1,35 @@
 import os
 import psycopg2
+from psycopg2 import pool
+import streamlit as st
 
+# Connection pool for better performance
+_connection_pool = None
+
+def get_connection_pool():
+    """Get or create a connection pool (singleton pattern)"""
+    global _connection_pool
+    if _connection_pool is None:
+        _connection_pool = psycopg2.pool.SimpleConnectionPool(
+            1,  # minconn
+            10,  # maxconn
+            os.environ["DATABASE_URL"]
+        )
+    return _connection_pool
 
 def get_connection():
-    return psycopg2.connect(
-        os.environ["DATABASE_URL"]
-    )
+    """Get a connection from the pool"""
+    pool = get_connection_pool()
+    return pool.getconn()
+
+def return_connection(conn):
+    """Return a connection to the pool"""
+    pool = get_connection_pool()
+    pool.putconn(conn)
 
 
 def init_db():
+    """Initialize database tables - cached to avoid repeated calls"""
     conn = get_connection()
     cursor = conn.cursor()
 
@@ -94,4 +115,4 @@ def init_db():
         print(f"Erro ao criar admin: {e}")
 
     cursor.close()
-    conn.close()
+    return_connection(conn)

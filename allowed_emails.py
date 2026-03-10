@@ -2,6 +2,9 @@
 # Agora usando banco de dados para armazenar emails permitidos
 # Suporta 3 roles: admin, user, viewer
 
+import streamlit as st
+
+@st.cache_data(ttl=300)  # Cache for 5 minutes
 def is_email_allowed(email):
     """
     Verifica se o email está autorizado a acessar o sistema.
@@ -14,17 +17,18 @@ def is_email_allowed(email):
     
     # Verifica se o email está na lista de permitidos no banco
     try:
-        from database import get_connection
+        from database import get_connection, return_connection
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT id FROM allowed_emails WHERE LOWER(email) = %s", (email,))
         result = cursor.fetchone()
         cursor.close()
-        conn.close()
+        return_connection(conn)
         return result is not None
     except:
         return False
 
+@st.cache_data(ttl=300)  # Cache for 5 minutes
 def get_user_role(email):
     """
     Retorna o role do usuário: 'admin', 'user', 'viewer' ou None.
@@ -35,13 +39,13 @@ def get_user_role(email):
     email = email.lower().strip()
     
     try:
-        from database import get_connection
+        from database import get_connection, return_connection
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT role FROM allowed_emails WHERE LOWER(email) = %s", (email,))
         result = cursor.fetchone()
         cursor.close()
-        conn.close()
+        return_connection(conn)
         return result[0] if result else None
     except:
         return None
@@ -75,7 +79,7 @@ def add_allowed_email(email, role='user', added_by=None):
         role = 'user'
     
     try:
-        from database import get_connection
+        from database import get_connection, return_connection
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("""
@@ -85,7 +89,11 @@ def add_allowed_email(email, role='user', added_by=None):
         """, (email.lower().strip(), role, added_by))
         conn.commit()
         cursor.close()
-        conn.close()
+        return_connection(conn)
+        # Clear cache after modification
+        is_email_allowed.clear()
+        get_user_role.clear()
+        get_all_allowed_emails.clear()
         return True
     except Exception as e:
         print(f"Erro ao adicionar email: {e}")
@@ -96,30 +104,35 @@ def remove_allowed_email(email):
     Remove um email da lista de permitidos.
     """
     try:
-        from database import get_connection
+        from database import get_connection, return_connection
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("DELETE FROM allowed_emails WHERE LOWER(email) = %s", (email.lower().strip(),))
         conn.commit()
         cursor.close()
-        conn.close()
+        return_connection(conn)
+        # Clear cache after modification
+        is_email_allowed.clear()
+        get_user_role.clear()
+        get_all_allowed_emails.clear()
         return True
     except Exception as e:
         print(f"Erro ao remover email: {e}")
         return False
 
+@st.cache_data(ttl=60)  # Cache for 1 minute
 def get_all_allowed_emails():
     """
     Retorna todos os emails permitidos.
     """
     try:
-        from database import get_connection
+        from database import get_connection, return_connection
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT email, role, added_by, added_at FROM allowed_emails ORDER BY added_at DESC")
         results = cursor.fetchall()
         cursor.close()
-        conn.close()
+        return_connection(conn)
         return results
     except Exception as e:
         print(f"Erro ao buscar emails: {e}")

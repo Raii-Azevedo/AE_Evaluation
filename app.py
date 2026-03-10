@@ -1,10 +1,216 @@
 import streamlit as st
 import pandas as pd
-from database import init_db, get_connection
+from database import init_db, get_connection, return_connection
 from allowed_emails import is_email_allowed, is_admin, is_viewer, can_edit, get_user_role, add_allowed_email, remove_allowed_email, get_all_allowed_emails
 from criterios_areas import get_criterios_por_area, get_areas_disponiveis
 
 st.set_page_config(page_title="Sistema de Avaliação Técnica", layout="wide", initial_sidebar_state="collapsed")
+
+# ===== CACHED DATABASE QUERIES =====
+@st.cache_data(ttl=60)  # Cache for 1 minute
+def get_processos_list():
+    """Cached query for processes list"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, nome, area, tipo, senioridade, local, status FROM processos ORDER BY id DESC")
+    processos = cursor.fetchall()
+    cursor.close()
+    return_connection(conn)
+    return processos
+
+@st.cache_data(ttl=60)
+def get_processo_details(processo_id):
+    """Cached query for process details"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT nome, status, area FROM processos WHERE id = %s", (processo_id,))
+    result = cursor.fetchone()
+    cursor.close()
+    return_connection(conn)
+    return result
+
+@st.cache_data(ttl=30)
+def get_candidatos_by_processo(processo_id):
+    """Cached query for candidates by process"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT
+            c.id,
+            c.nome,
+            c.email,
+            COUNT(a.id) as total_avaliacoes
+        FROM processos_candidatos pc
+        JOIN candidatos c ON pc.candidato_id = c.id
+        LEFT JOIN avaliacoes a
+            ON c.id = a.candidato_id AND a.processo_id = %s
+        WHERE pc.processo_id = %s
+        GROUP BY c.id
+        ORDER BY c.nome
+    """, (processo_id, processo_id))
+    candidatos = cursor.fetchall()
+    cursor.close()
+    return_connection(conn)
+    return candidatos
+
+@st.cache_data(ttl=30)
+def get_avaliacao_by_candidato(processo_id, candidato_id):
+    """Cached query for evaluation by candidate"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT nota_final, id
+        FROM avaliacoes
+        WHERE processo_id = %s AND candidato_id = %s
+        ORDER BY data DESC
+        LIMIT 1
+    """, (processo_id, candidato_id))
+    avaliacao = cursor.fetchone()
+    cursor.close()
+    return_connection(conn)
+    return avaliacao
+
+@st.cache_data(ttl=30)
+def get_avaliacao_details(avaliacao_id):
+    """Cached query for evaluation details"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT nota_final, avaliador, comentario_final
+        FROM avaliacoes
+        WHERE id = %s
+    """, (avaliacao_id,))
+    avaliacao = cursor.fetchone()
+    cursor.close()
+    return_connection(conn)
+    return avaliacao
+
+@st.cache_data(ttl=30)
+def get_avaliacao_criterios(avaliacao_id):
+    """Cached query for evaluation criteria"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT bloco, criterio, nota, justificativa
+        FROM avaliacoes_criterios
+        WHERE avaliacao_id = %s
+        ORDER BY bloco
+    """, (avaliacao_id,))
+    criterios = cursor.fetchall()
+    cursor.close()
+    return_connection(conn)
+    return criterios
+
+@st.cache_data(ttl=120)
+def get_statistics():
+    """Cached query for statistics"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT COUNT(*) FROM processos")
+    total_processos = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM processos WHERE status = 'Aberto'")
+    processos_abertos = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM candidatos")
+    total_candidatos = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM avaliacoes")
+    total_avaliacoes = cursor.fetchone()[0]
+    
+    cursor.execute("""
+        SELECT COUNT(DISTINCT c.id)
+        FROM candidatos c
+        LEFT JOIN avaliacoes a ON c.id = a.candidato_id
+        WHERE a.id IS NULL
+    """)
+    candidatos_pendentes = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT AVG(nota_final) FROM avaliacoes")
+    media_geral = cursor.fetchone()[0]
+    media_geral = round(float(media_geral), 2) if media_geral else 0
+    
+    cursor.close()
+    return_connection(conn)
+    
+    return {
+        'total_processos': total_processos,
+        'processos_abertos': processos_abertos,
+        'total_candidatos': total_candidatos,
+        'total_avaliacoes': total_avaliacoes,
+        'candidatos_pendentes': candidatos_pendentes,
+        'media_geral': media_geral
+    }
+
+@st.cache_data(ttl=120)
+def get_processos_stats():
+    """Cached query for process statistics"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT
+            p.nome,
+            p.area,
+            p.status,
+            COUNT(DISTINCT pc.candidato_id) as total_candidatos,
+            COUNT(DISTINCT a.id) as total_avaliacoes,
+            AVG(a.nota_final) as media_notas
+        FROM processos p
+        LEFT JOIN processos_candidatos pc ON p.id = pc.processo_id
+        LEFT JOIN avaliacoes a ON p.id = a.processo_id
+        GROUP BY p.id, p.nome, p.area, p.status
+        ORDER BY p.id DESC
+    """)
+    processos_stats = cursor.fetchall()
+    cursor.close()
+    return_connection(conn)
+    return processos_stats
+
+@st.cache_data(ttl=120)
+def get_top_candidatos():
+    """Cached query for top candidates"""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT
+            c.nome,
+            c.email,
+            MAX(a.nota_final) as melhor_nota,
+            COUNT(a.id) as num_avaliacoes
+        FROM candidatos c
+        JOIN avaliacoes a ON c.id = a.candidato_id
+        GROUP BY c.id, c.nome, c.email
+        ORDER BY MAX(a.nota_final) DESC
+        LIMIT 10
+    """)
+    top_candidatos = cursor.fetchall()
+    cursor.close()
+    return_connection(conn)
+    return top_candidatos
+
+def clear_processo_cache():
+    """Clear all process-related caches"""
+    get_processos_list.clear()
+    get_statistics.clear()
+    get_processos_stats.clear()
+
+def clear_candidato_cache():
+    """Clear all candidate-related caches"""
+    get_candidatos_by_processo.clear()
+    get_avaliacao_by_candidato.clear()
+    get_statistics.clear()
+    get_processos_stats.clear()
+    get_top_candidatos.clear()
+
+def clear_avaliacao_cache():
+    """Clear all evaluation-related caches"""
+    get_avaliacao_by_candidato.clear()
+    get_avaliacao_details.clear()
+    get_avaliacao_criterios.clear()
+    get_statistics.clear()
+    get_processos_stats.clear()
+    get_top_candidatos.clear()
 
 # ===== ESTILO APRIMORADO =====
 st.markdown("""
@@ -201,9 +407,10 @@ hr {
 """, unsafe_allow_html=True)
 
 # ===== DB =====
-init_db()
-conn = get_connection()
-cursor = conn.cursor()
+# Initialize database only once using session state
+if 'db_initialized' not in st.session_state:
+    init_db()
+    st.session_state.db_initialized = True
 
 # ===== SESSION STATE =====
 if "authenticated" not in st.session_state:
@@ -469,19 +676,23 @@ if st.session_state.view == "home":
                 local = st.selectbox("Local", ["BRASIL", "LATAM", "EUROPA", "GLOBAL"], key="novo_local_processo")
 
             if st.button("✨ Criar Processo", use_container_width=True):
+                conn = get_connection()
+                cursor = conn.cursor()
                 cursor.execute("""
                     INSERT INTO processos (nome, area, tipo, senioridade, status, local)
                     VALUES (%s, %s, %s, %s, %s, %s)
                 """, (nome, area, tipo, senioridade, status, local))
                 conn.commit()
+                cursor.close()
+                return_connection(conn)
+                clear_processo_cache()
                 st.success("✅ Processo criado com sucesso!")
                 st.rerun()
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # Listar processos
-    cursor.execute("SELECT id, nome, area, tipo, senioridade, local, status FROM processos ORDER BY id DESC")
-    processos = cursor.fetchall()
+    # Listar processos (usando cache)
+    processos = get_processos_list()
 
     if not processos:
         st.info("📋 Nenhum processo cadastrado ainda. Crie o primeiro!")
@@ -514,8 +725,7 @@ if st.session_state.view == "home":
 elif st.session_state.view == "processo":
 
     processo_id = st.session_state.processo_id
-    cursor.execute("SELECT nome, status, area FROM processos WHERE id = %s", (processo_id,))
-    result = cursor.fetchone()
+    result = get_processo_details(processo_id)
     nome_processo, status_processo, area_processo = result
 
     col_back, col_title, col_close = st.columns([1, 6, 2])
@@ -533,8 +743,13 @@ elif st.session_state.view == "processo":
     with col_close:
         if status_processo == "Aberto" and is_admin(st.session_state.user_email):
             if st.button("🔒 Fechar Processo"):
+                conn = get_connection()
+                cursor = conn.cursor()
                 cursor.execute("UPDATE processos SET status = %s WHERE id = %s", ("Fechado", processo_id))
                 conn.commit()
+                cursor.close()
+                return_connection(conn)
+                clear_processo_cache()
                 st.success("Processo fechado!")
                 st.rerun()
     
@@ -551,6 +766,8 @@ elif st.session_state.view == "processo":
                 email_c = st.text_input("Email", key="novo_email_c")
             
             if st.button("✨ Adicionar Candidato", use_container_width=True):
+                conn = get_connection()
+                cursor = conn.cursor()
                 cursor.execute("SELECT id FROM candidatos WHERE email = %s", (email_c,))
                 existe = cursor.fetchone()
                 if not existe:
@@ -566,6 +783,9 @@ elif st.session_state.view == "processo":
                     ON CONFLICT (processo_id, candidato_id) DO NOTHING
                 """, (processo_id, candidato_id))
                 conn.commit()
+                cursor.close()
+                return_connection(conn)
+                clear_candidato_cache()
                 st.success("✅ Candidato registrado!")
 
                 st.session_state["novo_nome_c"] = ""
@@ -574,23 +794,8 @@ elif st.session_state.view == "processo":
 
     st.divider()
 
-    # Listar candidatos vinculados
-    cursor.execute("""
-        SELECT 
-            c.id, 
-            c.nome, 
-            c.email,
-            COUNT(a.id) as total_avaliacoes
-        FROM processos_candidatos pc
-        JOIN candidatos c ON pc.candidato_id = c.id
-        LEFT JOIN avaliacoes a
-            ON c.id = a.candidato_id AND a.processo_id = %s
-        WHERE pc.processo_id = %s
-        GROUP BY c.id
-        ORDER BY c.nome
-    """, (processo_id, processo_id))
-
-    candidatos = cursor.fetchall()
+    # Listar candidatos vinculados (usando cache)
+    candidatos = get_candidatos_by_processo(processo_id)
 
     # Busca e filtros
     col_search, col_filter = st.columns([2, 1])
@@ -622,14 +827,7 @@ elif st.session_state.view == "processo":
 
     for id_c, nome, email, total_avaliacoes in candidatos:
 
-        cursor.execute("""
-            SELECT nota_final, id 
-            FROM avaliacoes 
-            WHERE processo_id = %s AND candidato_id = %s 
-            ORDER BY data DESC 
-            LIMIT 1
-        """, (processo_id, id_c))
-        avaliacao = cursor.fetchone()
+        avaliacao = get_avaliacao_by_candidato(processo_id, id_c)
 
         if avaliacao:
             nota_final = avaliacao[0]
@@ -693,11 +891,15 @@ elif st.session_state.view == "avaliar":
         st.session_state.view = "processo"
         st.rerun()
 
+    conn = get_connection()
+    cursor = conn.cursor()
     cursor.execute("SELECT nome FROM candidatos WHERE id = %s", (candidato_id,))
     nome_candidato = cursor.fetchone()[0]
     
     cursor.execute("SELECT area FROM processos WHERE id = %s", (processo_id,))
     area_processo = cursor.fetchone()[0]
+    cursor.close()
+    return_connection(conn)
     
     st.markdown(f"<h1>📝 Avaliação - {nome_candidato}</h1>", unsafe_allow_html=True)
     st.caption(f"Área: {area_processo}")
@@ -801,6 +1003,8 @@ elif st.session_state.view == "avaliar":
     # Salvar
     if st.button("💾 Salvar Avaliação", use_container_width=True):
 
+        conn = get_connection()
+        cursor = conn.cursor()
         cursor.execute("""
         INSERT INTO avaliacoes
         (processo_id, candidato_id, nota_final, avaliador, comentario_final)
@@ -823,6 +1027,9 @@ elif st.session_state.view == "avaliar":
                 """, (avaliacao_id, bloco, criterio, nota, justificativa))
 
         conn.commit()
+        cursor.close()
+        return_connection(conn)
+        clear_avaliacao_cache()
 
         st.success("✅ Avaliação salva com sucesso!")
         st.balloons()
@@ -840,12 +1047,7 @@ elif st.session_state.view == "detalhe_avaliacao":
         st.session_state.view = "processo"
         st.rerun()
 
-    cursor.execute("""
-        SELECT nota_final, avaliador, comentario_final
-        FROM avaliacoes
-        WHERE id = %s
-    """, (avaliacao_id,))
-    avaliacao = cursor.fetchone()
+    avaliacao = get_avaliacao_details(avaliacao_id)
 
     if avaliacao:
         nota_final, avaliador, comentario_final = avaliacao
@@ -878,15 +1080,8 @@ elif st.session_state.view == "detalhe_avaliacao":
 
         st.divider()
 
-        # Buscar critérios
-        cursor.execute("""
-            SELECT bloco, criterio, nota, justificativa
-            FROM avaliacoes_criterios
-            WHERE avaliacao_id = %s
-            ORDER BY bloco
-        """, (avaliacao_id,))
-
-        criterios = cursor.fetchall()
+        # Buscar critérios (usando cache)
+        criterios = get_avaliacao_criterios(avaliacao_id)
 
         bloco_atual = None
         for bloco, criterio, nota, justificativa in criterios:
@@ -922,30 +1117,14 @@ elif st.session_state.view == "statistics":
     </h1>
     """, unsafe_allow_html=True)
     
-    # Estatísticas gerais
-    cursor.execute("SELECT COUNT(*) FROM processos")
-    total_processos = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM processos WHERE status = 'Aberto'")
-    processos_abertos = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM candidatos")
-    total_candidatos = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM avaliacoes")
-    total_avaliacoes = cursor.fetchone()[0]
-    
-    cursor.execute("""
-        SELECT COUNT(DISTINCT c.id)
-        FROM candidatos c
-        LEFT JOIN avaliacoes a ON c.id = a.candidato_id
-        WHERE a.id IS NULL
-    """)
-    candidatos_pendentes = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT AVG(nota_final) FROM avaliacoes")
-    media_geral = cursor.fetchone()[0]
-    media_geral = round(float(media_geral), 2) if media_geral else 0
+    # Estatísticas gerais (usando cache)
+    stats = get_statistics()
+    total_processos = stats['total_processos']
+    processos_abertos = stats['processos_abertos']
+    total_candidatos = stats['total_candidatos']
+    total_avaliacoes = stats['total_avaliacoes']
+    candidatos_pendentes = stats['candidatos_pendentes']
+    media_geral = stats['media_geral']
     
     # Cards de estatísticas
     col1, col2, col3 = st.columns(3)
@@ -982,25 +1161,10 @@ elif st.session_state.view == "statistics":
     
     st.divider()
     
-    # Estatísticas por processo
+    # Estatísticas por processo (usando cache)
     st.markdown("<h2>📊 Estatísticas por Processo</h2>", unsafe_allow_html=True)
     
-    cursor.execute("""
-        SELECT
-            p.nome,
-            p.area,
-            p.status,
-            COUNT(DISTINCT pc.candidato_id) as total_candidatos,
-            COUNT(DISTINCT a.id) as total_avaliacoes,
-            AVG(a.nota_final) as media_notas
-        FROM processos p
-        LEFT JOIN processos_candidatos pc ON p.id = pc.processo_id
-        LEFT JOIN avaliacoes a ON p.id = a.processo_id
-        GROUP BY p.id, p.nome, p.area, p.status
-        ORDER BY p.id DESC
-    """)
-    
-    processos_stats = cursor.fetchall()
+    processos_stats = get_processos_stats()
     
     if processos_stats:
         for nome, area, status, total_cand, total_aval, media in processos_stats:
@@ -1038,23 +1202,10 @@ elif st.session_state.view == "statistics":
     
     st.divider()
     
-    # Top candidatos
+    # Top candidatos (usando cache)
     st.markdown("<h2>🏆 Top 10 Candidatos</h2>", unsafe_allow_html=True)
     
-    cursor.execute("""
-        SELECT
-            c.nome,
-            c.email,
-            MAX(a.nota_final) as melhor_nota,
-            COUNT(a.id) as num_avaliacoes
-        FROM candidatos c
-        JOIN avaliacoes a ON c.id = a.candidato_id
-        GROUP BY c.id, c.nome, c.email
-        ORDER BY MAX(a.nota_final) DESC
-        LIMIT 10
-    """)
-    
-    top_candidatos = cursor.fetchall()
+    top_candidatos = get_top_candidatos()
     
     if top_candidatos:
         for idx, (nome, email, nota, num_aval) in enumerate(top_candidatos, 1):
