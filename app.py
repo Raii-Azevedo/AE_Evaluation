@@ -958,8 +958,6 @@ elif st.session_state.view == "avaliar":
             soma_ponderada += nota * peso
             soma_pesos += peso
 
-            if obrigatorio and nota < 6:
-                reprovado_por_obrigatorio = True
 
     # Resultado
     nota_final = round(soma_ponderada / soma_pesos, 2)
@@ -979,10 +977,7 @@ elif st.session_state.view == "avaliar":
             st.warning("⚠️ Avaliar melhor")
         else:
             st.error("❌ Não recomendado")
-    
-    with col_metric3:
-        if reprovado_por_obrigatorio:
-            st.error("🔴 Reprovado em critério obrigatório")
+
 
     st.divider()
 
