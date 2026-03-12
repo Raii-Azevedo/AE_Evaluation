@@ -671,9 +671,9 @@ if st.session_state.view == "home":
                 ], key="novo_tipo_processo")
             
             with col2:
-                senioridade = st.selectbox("Senioridade", ["Estágio", "Júnior", "Pleno", "Sênior"], key="novo_senioridade")
+                senioridade = st.selectbox("Senioridade", ["Estágio","Pleno" ], key="novo_senioridade")
                 status = st.selectbox("Status", ["Aberto", "Fechado"], key="novo_status")
-                local = st.selectbox("Local", ["BRASIL", "LATAM", "EUROPA", "GLOBAL"], key="novo_local_processo")
+                local = st.selectbox("Local", ["BRASIL", "COLOMBIA", "MEXICO"], key="novo_local_processo")
 
             if st.button("✨ Criar Processo", use_container_width=True):
                 conn = get_connection()
@@ -995,10 +995,16 @@ elif st.session_state.view == "avaliar":
     with col2:
         st.markdown("<br>", unsafe_allow_html=True)
     
-    comentario_final = st.text_area("Comentário Final Geral", height=150)
+    comentario_final = st.text_area("Comentário Final Geral (Obrigatório) *", height=150,
+                                     help="A justificativa geral é obrigatória para salvar a avaliação")
 
     # Salvar
     if st.button("💾 Salvar Avaliação", use_container_width=True):
+        
+        # Validar se o comentário final foi preenchido
+        if not comentario_final or comentario_final.strip() == "":
+            st.error("❌ A justificativa geral é obrigatória! Por favor, preencha o comentário final antes de salvar.")
+            st.stop()
 
         conn = get_connection()
         cursor = conn.cursor()
@@ -1051,10 +1057,97 @@ elif st.session_state.view == "detalhe_avaliacao":
 
         st.markdown("<h1>📊 Detalhe da Avaliação</h1>", unsafe_allow_html=True)
         
+        # Buscar critérios para calcular médias por categoria
+        criterios = get_avaliacao_criterios(avaliacao_id)
+        
+        # Calcular médias por categoria/bloco
+        categorias_notas = {}
+        for bloco, criterio, nota, justificativa in criterios:
+            if bloco not in categorias_notas:
+                categorias_notas[bloco] = []
+            categorias_notas[bloco].append(float(nota))
+        
+        # Calcular médias
+        categorias_medias = {}
+        for bloco, notas in categorias_notas.items():
+            categorias_medias[bloco] = round(sum(notas) / len(notas), 1)
+        
+        # Exibir resumo de notas no topo
+        st.markdown("""
+        <div style="
+            background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(147,51,234,0.15));
+            backdrop-filter: blur(20px);
+            padding: 32px;
+            border-radius: 24px;
+            border: 1px solid rgba(255,255,255,0.2);
+            box-shadow: 0px 16px 48px rgba(0,0,0,0.4);
+            margin-bottom: 32px;
+        ">
+            <h2 style="text-align:center; margin-bottom:24px; color:#60A5FA;">🎯 Resumo das Avaliações</h2>
+        """, unsafe_allow_html=True)
+        
+        # Nota Final em destaque
+        st.markdown(f"""
+        <div style="text-align:center; margin-bottom:24px;">
+            <p style="font-size:16px; color:rgba(255,255,255,0.7); margin-bottom:8px;">NOTA FINAL</p>
+            <p style="font-size:64px; font-weight:800; margin:0;
+                background: linear-gradient(135deg, #60A5FA, #A78BFA);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;">
+                {nota_final}
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+        
+        # Notas por categoria
+        st.markdown("<div style='display:flex; justify-content:space-around; flex-wrap:wrap; gap:16px;'>", unsafe_allow_html=True)
+        
+        # Mapeamento de nomes de blocos para nomes de exibição
+        bloco_display_names = {
+            "Tratamentos": "Tratamento de Dados",
+            "Análises": "Análises",
+            "Visual": "Visualização de Dados"
+        }
+        
+        # Cores para cada categoria
+        bloco_colors = {
+            "Tratamentos": "#60A5FA",
+            "Análises": "#A78BFA",
+            "Visual": "#F472B6"
+        }
+        
+        for bloco, media in categorias_medias.items():
+            display_name = bloco_display_names.get(bloco, bloco)
+            color = bloco_colors.get(bloco, "#9CA3AF")
+            
+            st.markdown(f"""
+            <div style="
+                flex: 1;
+                min-width: 200px;
+                background: rgba(255,255,255,0.05);
+                padding: 20px;
+                border-radius: 16px;
+                text-align: center;
+                border: 2px solid {color}40;
+            ">
+                <p style="font-size:14px; color:rgba(255,255,255,0.7); margin-bottom:8px; font-weight:600;">
+                    {display_name}
+                </p>
+                <p style="font-size:36px; font-weight:800; margin:0; color:{color};">
+                    {media}
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
+        
+        st.markdown("</div></div>", unsafe_allow_html=True)
+        
+        st.divider()
+        
+        # Informações do avaliador e status
         col1, col2 = st.columns(2)
         
         with col1:
-            st.metric("Nota Final", nota_final)
+            st.markdown(f"**👤 Avaliador:** {avaliador}")
         
         with col2:
             if nota_final >= 8:
@@ -1063,8 +1156,6 @@ elif st.session_state.view == "detalhe_avaliacao":
                 st.warning("⚠️ Avaliar melhor")
             else:
                 st.error("❌ Não recomendado")
-        
-        st.markdown(f"**👤 Avaliador:** {avaliador}")
         
         st.divider()
         
@@ -1077,8 +1168,9 @@ elif st.session_state.view == "detalhe_avaliacao":
 
         st.divider()
 
-        # Buscar critérios (usando cache)
-        criterios = get_avaliacao_criterios(avaliacao_id)
+        # Exibir critérios detalhados por categoria
+        st.markdown("<h2>📋 Detalhamento por Critério</h2>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
 
         bloco_atual = None
         for bloco, criterio, nota, justificativa in criterios:
