@@ -353,7 +353,7 @@ A aplicação estará disponível em `http://localhost:8501`
 ### 🔐 Primeiro Acesso
 
 O sistema cria automaticamente um usuário administrador:
-- **Email**: `admin@artefact.com`
+- **Email**: `email_secret`
 - Use este email para fazer o primeiro login e adicionar outros usuários
 
 ---
