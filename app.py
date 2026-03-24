@@ -781,10 +781,11 @@ def create_process():
         with col1:
             nome = st.text_input("Nome do Processo*", key="novo_nome")
             area = st.selectbox("Área*", get_areas_disponiveis(), key="novo_area")
-            senioridade = st.selectbox("Senioridade*", ["Estágio", "Júnior", "Pleno", "Sênior"], key="novo_senioridade")
+            senioridade = st.selectbox("Senioridade*", ["Estágio", "Pleno"], key="novo_senioridade")
+            tipo = st.selectbox("Tipo*", ["Pessoas Negras", "LGBTQIAPN+", "Mulheres (Cis | Trans)", "Ampla Concorrência", "Pessoa com Deficiência"], key="novo_tipo")
         with col2:
             status = st.selectbox("Status*", ["Aberto", "Fechado"], key="novo_status")
-            local = st.selectbox("Local*", ["BRASIL", "LATAM", "EUA"], key="novo_local")
+            local = st.selectbox("Local*", ["BRASIL", "MEXICO", "COLOMBIA", "CHILE"], key="novo_local")
             descricao = st.text_area("Descrição", key="novo_desc")
         
         if st.button("✅ Criar Processo", type="primary"):
@@ -794,12 +795,12 @@ def create_process():
                     conn = get_connection()
                     cursor = conn.cursor()
                     cursor.execute("""
-                        INSERT INTO processos (nome, area, senioridade, status, local, descricao)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                    """, (nome, area, senioridade, status, local, descricao))
+                        INSERT INTO processos (nome, area, senioridade, tipo, status, local, descricao)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """, (nome, area, senioridade, tipo, status, local, descricao))
                     conn.commit()
                     cursor.close()
-                    add_notification(f"✅ Processo '{nome}' criado!", "success")
+                    add_notification(f"✅ Processo '{nome}' criado!", "success")            
                     st.rerun()
                 except Exception as e:
                     st.error(f"Erro ao criar processo: {str(e)}")
