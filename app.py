@@ -5,7 +5,6 @@ import time
 from datetime import datetime
 from database import init_db, get_connection
 from functools import wraps
-import hashlib
 
 # ===== PAGE CONFIG =====
 st.set_page_config(
@@ -34,7 +33,7 @@ def init_session_state():
         "draft_data": {},
         "notifications": [],
         "logged_in": False,
-        "user_id": None,
+        "user_email": None,
         "user_name": None,
         "user_role": None,
         "admin_view": "dashboard"
@@ -47,14 +46,6 @@ def init_session_state():
 init_session_state()
 
 # ===== HELPER FUNCTIONS =====
-def hash_password(password):
-    """Hash password for storage"""
-    return hashlib.sha256(password.encode()).hexdigest()
-
-def verify_password(password, hashed):
-    """Verify password against hash"""
-    return hash_password(password) == hashed
-
 def safe_db_operation(func):
     """Decorator for safe database operations"""
     @wraps(func)
@@ -96,7 +87,7 @@ def show_progress_bar(current, total, label=""):
 
 @st.cache_data(ttl=300)  # Cache for 5 minutes
 def get_processos_cached():
-    """Get cached processos data"""
+    """Get cached processos data based on user role"""
     if st.session_state.user_role == "admin":
         cursor.execute("SELECT id, nome, area, senioridade, status, local FROM processos ORDER BY id DESC")
     else:
@@ -104,9 +95,9 @@ def get_processos_cached():
             SELECT p.id, p.nome, p.area, p.senioridade, p.status, p.local 
             FROM processos p
             JOIN usuarios_processos up ON p.id = up.processo_id
-            WHERE up.usuario_id = %s
+            WHERE up.usuario_email = %s
             ORDER BY p.id DESC
-        """, (st.session_state.user_id,))
+        """, (st.session_state.user_email,))
     return cursor.fetchall()
 
 @st.cache_data(ttl=300)
@@ -201,8 +192,8 @@ def check_permission(required_role=None, required_processo=None):
     if required_processo and st.session_state.user_role != "admin":
         cursor.execute("""
             SELECT 1 FROM usuarios_processos 
-            WHERE usuario_id = %s AND processo_id = %s
-        """, (st.session_state.user_id, required_processo))
+            WHERE usuario_email = %s AND processo_id = %s
+        """, (st.session_state.user_email, required_processo))
         if not cursor.fetchone():
             return False
     
@@ -360,7 +351,7 @@ st.markdown(get_styles(st.session_state.dark_mode), unsafe_allow_html=True)
 
 # ===== LOGIN PAGE =====
 def login_page():
-    """Display login page"""
+    """Display login page - email only, no password"""
     st.markdown("""
     <h1 style="
         text-align:center;
@@ -375,7 +366,7 @@ def login_page():
         🚀 SISTEMA DE AVALIAÇÃO
     </h1>
     <p style="text-align:center; font-size:18px; margin-bottom:40px;">
-        Faça login para acessar o sistema
+        Entre com seu email para acessar o sistema
     </p>
     """, unsafe_allow_html=True)
     
@@ -384,58 +375,47 @@ def login_page():
         with col2:
             st.markdown('<div class="login-container">', unsafe_allow_html=True)
             
-            tab1, tab2 = st.tabs(["🔐 Login", "📝 Registrar"])
+            email = st.text_input("Email corporativo", placeholder="seuemail@artefact.com", key="login_email")
             
-            with tab1:
-                email = st.text_input("Email", key="login_email")
-                password = st.text_input("Senha", type="password", key="login_password")
-                
-                if st.button("Entrar", type="primary", use_container_width=True):
-                    if email and password:
-                        cursor.execute(
-                            "SELECT id, nome, role, senha FROM usuarios WHERE email = %s",
-                            (email,)
-                        )
-                        user = cursor.fetchone()
+            st.markdown("---")
+            st.caption("ℹ️ Use seu email corporativo. O admin@artefact.com tem acesso administrativo total.")
+            
+            if st.button("🔐 Entrar", type="primary", use_container_width=True):
+                if email:
+                    # Check if user exists in database
+                    cursor.execute(
+                        "SELECT nome, role FROM usuarios WHERE email = %s",
+                        (email,)
+                    )
+                    user = cursor.fetchone()
+                    
+                    if user:
+                        # User exists
+                        st.session_state.logged_in = True
+                        st.session_state.user_email = email
+                        st.session_state.user_name = user[0]
+                        st.session_state.user_role = user[1]
+                        add_notification(f"Bem-vindo, {user[0]}!", "success")
+                        st.rerun()
+                    else:
+                        # New user - auto-register as viewer
+                        nome = email.split('@')[0]  # Use part before @ as name
+                        role = "admin" if email == "admin@artefact.com" else "viewer"
                         
-                        if user and verify_password(password, user[3]):
-                            st.session_state.logged_in = True
-                            st.session_state.user_id = user[0]
-                            st.session_state.user_name = user[1]
-                            st.session_state.user_role = user[2]
-                            add_notification(f"Bem-vindo, {user[1]}!", "success")
-                            st.rerun()
-                        else:
-                            st.error("❌ Email ou senha incorretos")
-                    else:
-                        st.warning("⚠️ Preencha todos os campos")
-            
-            with tab2:
-                nome = st.text_input("Nome Completo", key="reg_nome")
-                email = st.text_input("Email", key="reg_email")
-                password = st.text_input("Senha", type="password", key="reg_password")
-                confirm_password = st.text_input("Confirmar Senha", type="password", key="reg_confirm")
-                role = st.selectbox("Tipo de Usuário", ["avaliador", "admin"], key="reg_role")
-                
-                if st.button("Registrar", type="primary", use_container_width=True):
-                    if not nome or not email or not password:
-                        st.warning("⚠️ Preencha todos os campos")
-                    elif password != confirm_password:
-                        st.error("❌ As senhas não coincidem")
-                    else:
-                        # Check if email already exists
-                        cursor.execute("SELECT id FROM usuarios WHERE email = %s", (email,))
-                        if cursor.fetchone():
-                            st.error("❌ Email já registrado")
-                        else:
-                            hashed = hash_password(password)
-                            cursor.execute("""
-                                INSERT INTO usuarios (nome, email, senha, role)
-                                VALUES (%s, %s, %s, %s)
-                            """, (nome, email, hashed, role))
-                            conn.commit()
-                            add_notification("✅ Registro realizado com sucesso! Faça login.", "success")
-                            st.rerun()
+                        cursor.execute("""
+                            INSERT INTO usuarios (nome, email, role)
+                            VALUES (%s, %s, %s)
+                        """, (nome, email, role))
+                        conn.commit()
+                        
+                        st.session_state.logged_in = True
+                        st.session_state.user_email = email
+                        st.session_state.user_name = nome
+                        st.session_state.user_role = role
+                        add_notification(f"Bem-vindo, {nome}! Seu acesso foi registrado.", "success")
+                        st.rerun()
+                else:
+                    st.warning("⚠️ Digite seu email para acessar")
             
             st.markdown('</div>', unsafe_allow_html=True)
 
@@ -445,6 +425,12 @@ def render_sidebar():
     with st.sidebar:
         if st.session_state.logged_in:
             # User info
+            role_display = {
+                "admin": "👑 Administrador",
+                "user": "⭐ Avaliador",
+                "viewer": "👀 Visualizador"
+            }.get(st.session_state.user_role, "👤 Usuário")
+            
             st.markdown(f"""
             <div style="text-align: center; margin-bottom: 20px;">
                 <div style="background: linear-gradient(135deg, #3B82F6, #EC4899); 
@@ -459,7 +445,8 @@ def render_sidebar():
                 </div>
                 <h3 style="margin: 0;">{st.session_state.user_name}</h3>
                 <p style="margin: 0; font-size: 12px; opacity: 0.8;">
-                    {'👑 Administrador' if st.session_state.user_role == 'admin' else '⭐ Avaliador'}
+                    {st.session_state.user_email}<br>
+                    {role_display}
                 </p>
             </div>
             """, unsafe_allow_html=True)
@@ -476,16 +463,17 @@ def render_sidebar():
                     st.session_state.dark_mode = False
                     st.rerun()
             
-            # Auto-save toggle
-            st.session_state.auto_save_enabled = st.toggle(
-                "💾 Auto-save",
-                value=st.session_state.auto_save_enabled,
-                help="Salvar rascunho automaticamente a cada 30 segundos"
-            )
+            # Auto-save toggle (only for user role)
+            if st.session_state.user_role == "user":
+                st.session_state.auto_save_enabled = st.toggle(
+                    "💾 Auto-save",
+                    value=st.session_state.auto_save_enabled,
+                    help="Salvar rascunho automaticamente a cada 30 segundos"
+                )
             
             st.markdown("---")
             
-            # Admin menu
+            # Admin menu (only for admin)
             if st.session_state.user_role == "admin":
                 st.markdown("### 🛠️ Administração")
                 admin_option = st.radio(
@@ -521,18 +509,16 @@ def render_sidebar():
             
             # Logout button
             if st.button("🚪 Sair", use_container_width=True):
-                for key in ["logged_in", "user_id", "user_name", "user_role", "admin_view"]:
+                for key in ["logged_in", "user_email", "user_name", "user_role", "admin_view"]:
                     if key in st.session_state:
                         st.session_state[key] = None if key != "admin_view" else "dashboard"
                 st.session_state.logged_in = False
                 st.rerun()
             
             st.markdown("---")
-            st.caption("💡 Dica: Use Ctrl+S para salvar rapidamente")
-            st.caption(f"🕒 Último auto-save: {datetime.fromtimestamp(st.session_state.last_save_time).strftime('%H:%M:%S') if st.session_state.last_save_time else 'Nunca'}")
-        else:
-            st.markdown("### 🎯 Sistema de Avaliação")
-            st.markdown("Faça login para acessar o sistema")
+            if st.session_state.user_role == "user" and st.session_state.auto_save_enabled:
+                st.caption("💡 Dica: Use Ctrl+S para salvar rapidamente")
+                st.caption(f"🕒 Último auto-save: {datetime.fromtimestamp(st.session_state.last_save_time).strftime('%H:%M:%S') if st.session_state.last_save_time else 'Nunca'}")
 
 # ===== ADMIN FUNCTIONS =====
 def admin_dashboard():
@@ -561,6 +547,25 @@ def admin_dashboard():
     
     st.divider()
     
+    # User distribution
+    st.subheader("👥 Distribuição de Usuários")
+    cursor.execute("""
+        SELECT role, COUNT(*) as total
+        FROM usuarios
+        GROUP BY role
+    """)
+    roles = cursor.fetchall()
+    
+    if roles:
+        col1, col2, col3 = st.columns(3)
+        role_colors = {"admin": "#EF4444", "user": "#3B82F6", "viewer": "#10B981"}
+        for i, (role, total) in enumerate(roles):
+            role_name = {"admin": "Administradores", "user": "Avaliadores", "viewer": "Visualizadores"}.get(role, role)
+            with [col1, col2, col3][i % 3]:
+                st.metric(role_name, total)
+    
+    st.divider()
+    
     # Recent activity
     st.subheader("📈 Atividade Recente")
     cursor.execute("""
@@ -573,7 +578,7 @@ def admin_dashboard():
         FROM avaliacoes a
         JOIN processos p ON a.processo_id = p.id
         JOIN candidatos c ON a.candidato_id = c.id
-        JOIN usuarios u ON a.avaliador_id = u.id
+        JOIN usuarios u ON a.avaliador_email = u.email
         ORDER BY a.data DESC
         LIMIT 10
     """)
@@ -590,37 +595,45 @@ def admin_usuarios():
     st.title("👥 Gerenciamento de Usuários")
     
     # List users
-    cursor.execute("SELECT id, nome, email, role, created_at FROM usuarios ORDER BY created_at DESC")
+    cursor.execute("SELECT email, nome, role, created_at FROM usuarios ORDER BY created_at DESC")
     usuarios = cursor.fetchall()
     
     if usuarios:
-        df = pd.DataFrame(usuarios, columns=["ID", "Nome", "Email", "Role", "Data Cadastro"])
+        df = pd.DataFrame(usuarios, columns=["Email", "Nome", "Role", "Data Cadastro"])
         st.dataframe(df, use_container_width=True)
     
     st.divider()
     
-    # Add new user
-    with st.expander("➕ Adicionar Novo Usuário"):
-        col1, col2 = st.columns(2)
-        with col1:
-            novo_nome = st.text_input("Nome")
-            novo_email = st.text_input("Email")
-        with col2:
-            nova_senha = st.text_input("Senha", type="password")
-            novo_role = st.selectbox("Role", ["avaliador", "admin"])
+    # Change user role
+    with st.expander("✏️ Alterar Role de Usuário"):
+        cursor.execute("SELECT email, nome, role FROM usuarios")
+        users = cursor.fetchall()
         
-        if st.button("Criar Usuário"):
-            if novo_nome and novo_email and nova_senha:
-                hashed = hash_password(nova_senha)
-                cursor.execute("""
-                    INSERT INTO usuarios (nome, email, senha, role)
-                    VALUES (%s, %s, %s, %s)
-                """, (novo_nome, novo_email, hashed, novo_role))
-                conn.commit()
-                add_notification(f"✅ Usuário {novo_nome} criado com sucesso!", "success")
-                st.rerun()
-            else:
-                st.warning("⚠️ Preencha todos os campos")
+        if users:
+            user_options = {f"{u[1]} ({u[0]})": u[0] for u in users}
+            selected_user = st.selectbox("Selecione o usuário", list(user_options.keys()))
+            user_email = user_options[selected_user]
+            
+            current_role = [u[2] for u in users if u[0] == user_email][0]
+            
+            new_role = st.selectbox(
+                "Nova Role",
+                ["admin", "user", "viewer"],
+                index=["admin", "user", "viewer"].index(current_role)
+            )
+            
+            if st.button("Atualizar Role", type="primary"):
+                if new_role != current_role:
+                    cursor.execute("""
+                        UPDATE usuarios SET role = %s WHERE email = %s
+                    """, (new_role, user_email))
+                    conn.commit()
+                    add_notification(f"✅ Role de {user_email} alterada para {new_role}", "success")
+                    st.rerun()
+                else:
+                    st.info("Role já é a mesma")
+        else:
+            st.info("Nenhum usuário cadastrado")
 
 def admin_permissoes():
     """Manage user permissions for processes"""
@@ -630,15 +643,19 @@ def admin_permissoes():
     
     with col1:
         st.subheader("👤 Usuários")
-        cursor.execute("SELECT id, nome, email, role FROM usuarios WHERE role = 'avaliador'")
+        cursor.execute("SELECT email, nome, role FROM usuarios WHERE role IN ('user', 'viewer')")
         usuarios = cursor.fetchall()
         
         if usuarios:
-            user_options = {f"{u[1]} ({u[2]})": u[0] for u in usuarios}
+            user_options = {f"{u[1]} ({u[0]})": u[0] for u in usuarios}
             selected_user = st.selectbox("Selecione um usuário", list(user_options.keys()))
-            user_id = user_options[selected_user]
+            user_email = user_options[selected_user]
+            user_role = [u[2] for u in usuarios if u[0] == user_email][0]
+            
+            if user_role == "viewer":
+                st.info("👀 Visualizadores têm acesso apenas de leitura a todos os processos")
         else:
-            st.info("Nenhum avaliador cadastrado")
+            st.info("Nenhum avaliador ou visualizador cadastrado")
             return
     
     with col2:
@@ -646,39 +663,39 @@ def admin_permissoes():
         cursor.execute("SELECT id, nome, status FROM processos ORDER BY nome")
         processos = cursor.fetchall()
         
-        if processos:
+        if processos and user_role == "user":
             # Get user's current permissions
             cursor.execute("""
                 SELECT processo_id FROM usuarios_processos 
-                WHERE usuario_id = %s
-            """, (user_id,))
+                WHERE usuario_email = %s
+            """, (user_email,))
             user_processos = [p[0] for p in cursor.fetchall()]
             
             for processo in processos:
                 id_p, nome_p, status_p = processo
                 is_checked = id_p in user_processos
                 
-                if st.checkbox(f"{nome_p} ({status_p})", value=is_checked, key=f"perm_{user_id}_{id_p}"):
+                if st.checkbox(f"{nome_p} ({status_p})", value=is_checked, key=f"perm_{user_email}_{id_p}"):
                     if not is_checked:
                         cursor.execute("""
-                            INSERT INTO usuarios_processos (usuario_id, processo_id)
+                            INSERT INTO usuarios_processos (usuario_email, processo_id)
                             VALUES (%s, %s)
-                        """, (user_id, id_p))
+                        """, (user_email, id_p))
                         conn.commit()
                         add_notification(f"✅ Permissão adicionada para {nome_p}", "success")
                 else:
                     if is_checked:
                         cursor.execute("""
                             DELETE FROM usuarios_processos 
-                            WHERE usuario_id = %s AND processo_id = %s
-                        """, (user_id, id_p))
+                            WHERE usuario_email = %s AND processo_id = %s
+                        """, (user_email, id_p))
                         conn.commit()
                         add_notification(f"❌ Permissão removida para {nome_p}", "warning")
             
             if st.button("💾 Salvar Permissões", use_container_width=True):
                 st.rerun()
-        else:
-            st.info("Nenhum processo cadastrado")
+        elif user_role == "viewer":
+            st.info("👀 Visualizadores têm acesso a todos os processos automaticamente")
 
 def admin_relatorios():
     """Generate reports"""
@@ -729,7 +746,7 @@ def admin_relatorios():
                     a.comentario_final
                 FROM avaliacoes a
                 JOIN candidatos c ON a.candidato_id = c.id
-                JOIN usuarios u ON a.avaliador_id = u.id
+                JOIN usuarios u ON a.avaliador_email = u.email
                 JOIN processos p ON a.processo_id = p.id
                 WHERE p.nome = %s
                 ORDER BY a.data DESC
@@ -908,403 +925,414 @@ else:
         if st.session_state.view == "home":
             home_page()
         elif st.session_state.view == "processo":
-            # Processo view (same as before)
+            # Processo view (simplified - same as before but with permission checks)
             processo_id = st.session_state.processo_id
-            cursor.execute("SELECT nome, status FROM processos WHERE id = %s", (processo_id,))
-            result = cursor.fetchone()
             
-            if not result:
-                st.error("Processo não encontrado")
+            # Check permission
+            if not check_permission(required_processo=processo_id):
+                st.error("❌ Você não tem permissão para acessar este processo")
                 if st.button("← Voltar para Home"):
                     st.session_state.view = "home"
                     st.rerun()
             else:
-                nome_processo, status_processo = result
+                cursor.execute("SELECT nome, status FROM processos WHERE id = %s", (processo_id,))
+                result = cursor.fetchone()
                 
-                # Header with actions
-                col1, col2, col3 = st.columns([2, 1, 1])
-                with col1:
-                    st.title(f"📂 {nome_processo}")
-                with col2:
-                    if st.button("🏠 Home", use_container_width=True):
+                if not result:
+                    st.error("Processo não encontrado")
+                    if st.button("← Voltar para Home"):
                         st.session_state.view = "home"
-                        st.session_state.processo_id = None
                         st.rerun()
-                with col3:
-                    if status_processo == "Aberto" and st.session_state.user_role == "admin":
-                        if confirm_action("🔒 Fechar Processo", key_prefix=f"fechar_{processo_id}"):
-                            cursor.execute("UPDATE processos SET status = %s WHERE id = %s", ("Fechado", processo_id))
-                            conn.commit()
-                            add_notification("✅ Processo fechado com sucesso!", "success")
+                else:
+                    nome_processo, status_processo = result
+                    
+                    # Header with actions
+                    col1, col2, col3 = st.columns([2, 1, 1])
+                    with col1:
+                        st.title(f"📂 {nome_processo}")
+                    with col2:
+                        if st.button("🏠 Home", use_container_width=True):
+                            st.session_state.view = "home"
+                            st.session_state.processo_id = None
                             st.rerun()
-                
-                st.markdown("---")
-                
-                # Add Candidate (if open)
-                if status_processo == "Aberto":
-                    with st.expander("➕ Adicionar Candidato", expanded=False):
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            nome_c = st.text_input("Nome do Candidato*", key="novo_nome_c")
-                            email_c = st.text_input("Email*", key="novo_email_c")
-                        with col2:
-                            telefone_c = st.text_input("Telefone", key="novo_telefone_c")
-                            linkedin_c = st.text_input("LinkedIn", key="novo_linkedin_c")
-                        
-                        if st.button("✅ Adicionar Candidato", type="primary", use_container_width=True):
-                            if not nome_c or not email_c:
-                                st.error("❌ Nome e email são obrigatórios")
-                            else:
-                                try:
-                                    # Check if candidate exists
-                                    cursor.execute("SELECT id FROM candidatos WHERE email = %s", (email_c,))
-                                    existe = cursor.fetchone()
-                                    
-                                    if not existe:
+                    with col3:
+                        if status_processo == "Aberto" and st.session_state.user_role == "admin":
+                            if confirm_action("🔒 Fechar Processo", key_prefix=f"fechar_{processo_id}"):
+                                cursor.execute("UPDATE processos SET status = %s WHERE id = %s", ("Fechado", processo_id))
+                                conn.commit()
+                                add_notification("✅ Processo fechado com sucesso!", "success")
+                                st.rerun()
+                    
+                    st.markdown("---")
+                    
+                    # Add Candidate (only for admin and user roles, not viewers)
+                    if status_processo == "Aberto" and st.session_state.user_role in ["admin", "user"]:
+                        with st.expander("➕ Adicionar Candidato", expanded=False):
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                nome_c = st.text_input("Nome do Candidato*", key="novo_nome_c")
+                                email_c = st.text_input("Email*", key="novo_email_c")
+                            with col2:
+                                telefone_c = st.text_input("Telefone", key="novo_telefone_c")
+                                linkedin_c = st.text_input("LinkedIn", key="novo_linkedin_c")
+                            
+                            if st.button("✅ Adicionar Candidato", type="primary", use_container_width=True):
+                                if not nome_c or not email_c:
+                                    st.error("❌ Nome e email são obrigatórios")
+                                else:
+                                    try:
+                                        # Check if candidate exists
+                                        cursor.execute("SELECT id FROM candidatos WHERE email = %s", (email_c,))
+                                        existe = cursor.fetchone()
+                                        
+                                        if not existe:
+                                            cursor.execute("""
+                                                INSERT INTO candidatos (nome, email, telefone, linkedin)
+                                                VALUES (%s, %s, %s, %s)
+                                            """, (nome_c, email_c, telefone_c, linkedin_c))
+                                            conn.commit()
+                                            candidato_id = cursor.lastrowid
+                                            add_notification(f"✅ Candidato {nome_c} cadastrado!", "success")
+                                        else:
+                                            candidato_id = existe[0]
+                                            add_notification(f"ℹ️ Candidato {nome_c} já existente", "info")
+                                        
+                                        # Link to process
                                         cursor.execute("""
-                                            INSERT INTO candidatos (nome, email, telefone, linkedin)
-                                            VALUES (%s, %s, %s, %s)
-                                        """, (nome_c, email_c, telefone_c, linkedin_c))
+                                            INSERT OR IGNORE INTO processos_candidatos (processo_id, candidato_id)
+                                            VALUES (%s, %s)
+                                        """, (processo_id, candidato_id))
                                         conn.commit()
-                                        candidato_id = cursor.lastrowid
-                                        add_notification(f"✅ Candidato {nome_c} cadastrado!", "success")
-                                    else:
-                                        candidato_id = existe[0]
-                                        add_notification(f"ℹ️ Candidato {nome_c} já existente", "info")
-                                    
-                                    # Link to process
-                                    cursor.execute("""
-                                        INSERT OR IGNORE INTO processos_candidatos (processo_id, candidato_id)
-                                        VALUES (%s, %s)
-                                    """, (processo_id, candidato_id))
-                                    conn.commit()
-                                    
-                                    # Reset inputs
-                                    for key in ["novo_nome_c", "novo_email_c", "novo_telefone_c", "novo_linkedin_c"]:
-                                        if key in st.session_state:
-                                            del st.session_state[key]
-                                    
-                                    st.rerun()
-                                except Exception as e:
-                                    st.error(f"❌ Erro ao adicionar candidato: {str(e)}")
-                
-                st.divider()
-                
-                # List Candidates (same as before)
-                st.markdown("### 👥 Candidatos")
-                
-                # Filters
-                col_filters = st.columns([2, 1, 1, 1])
-                with col_filters[0]:
-                    busca = st.text_input("🔎 Buscar candidato", placeholder="Nome ou email...")
-                with col_filters[1]:
-                    filtro_status = st.selectbox(
-                        "Status",
-                        ["Todos", "Pendentes", "Avaliados", "Aprovados", "Reprovados"]
-                    )
-                with col_filters[2]:
-                    nota_min = st.slider("Nota mínima", 0.0, 10.0, 0.0, step=0.5)
-                with col_filters[3]:
-                    ordenar = st.selectbox("Ordenar por", ["Nome", "Nota (maior)", "Nota (menor)", "Data"])
-                
-                # Get candidates
-                candidatos = get_candidatos_processo_cached(processo_id)
-                
-                # Apply filters
-                filtered_candidatos = []
-                for cand in candidatos:
-                    id_c, nome, email, total_avaliacoes, ultima_nota = cand
+                                        
+                                        # Reset inputs
+                                        for key in ["novo_nome_c", "novo_email_c", "novo_telefone_c", "novo_linkedin_c"]:
+                                            if key in st.session_state:
+                                                del st.session_state[key]
+                                        
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Erro ao adicionar candidato: {str(e)}")
                     
-                    # Search filter
-                    if busca and busca.lower() not in nome.lower() and busca.lower() not in email.lower():
-                        continue
+                    st.divider()
                     
-                    # Status filter
-                    if filtro_status == "Pendentes" and total_avaliacoes > 0:
-                        continue
-                    elif filtro_status == "Avaliados" and total_avaliacoes == 0:
-                        continue
-                    elif filtro_status == "Aprovados" and (not ultima_nota or ultima_nota < 8):
-                        continue
-                    elif filtro_status == "Reprovados" and (not ultima_nota or ultima_nota >= 8):
-                        continue
+                    # List Candidates
+                    st.markdown("### 👥 Candidatos")
                     
-                    # Score filter
-                    if ultima_nota and ultima_nota < nota_min:
-                        continue
+                    # Filters
+                    col_filters = st.columns([2, 1, 1, 1])
+                    with col_filters[0]:
+                        busca = st.text_input("🔎 Buscar candidato", placeholder="Nome ou email...")
+                    with col_filters[1]:
+                        filtro_status = st.selectbox(
+                            "Status",
+                            ["Todos", "Pendentes", "Avaliados", "Aprovados", "Reprovados"]
+                        )
+                    with col_filters[2]:
+                        nota_min = st.slider("Nota mínima", 0.0, 10.0, 0.0, step=0.5)
+                    with col_filters[3]:
+                        ordenar = st.selectbox("Ordenar por", ["Nome", "Nota (maior)", "Nota (menor)", "Data"])
                     
-                    filtered_candidatos.append(cand)
-                
-                # Apply sorting
-                if ordenar == "Nome":
-                    filtered_candidatos.sort(key=lambda x: x[1])
-                elif ordenar == "Nota (maior)":
-                    filtered_candidatos.sort(key=lambda x: x[4] or -1, reverse=True)
-                elif ordenar == "Nota (menor)":
-                    filtered_candidatos.sort(key=lambda x: x[4] or 999)
-                
-                # Display candidates
-                if not filtered_candidatos:
-                    st.info("👀 Nenhum candidato encontrado com os filtros selecionados")
-                
-                for cand in filtered_candidatos:
-                    id_c, nome, email, total_avaliacoes, ultima_nota = cand
+                    # Get candidates
+                    candidatos = get_candidatos_processo_cached(processo_id)
                     
-                    # Get evaluation details
-                    cursor.execute("""
-                        SELECT nota_final, id, avaliador, data
-                        FROM avaliacoes 
-                        WHERE processo_id = %s AND candidato_id = %s 
-                        ORDER BY data DESC 
-                        LIMIT 1
-                    """, (processo_id, id_c))
-                    avaliacao = cursor.fetchone()
-                    
-                    if avaliacao:
-                        nota_final = avaliacao[0]
-                        avaliacao_id = avaliacao[1]
-                        avaliador = avaliacao[2]
-                        data_avaliacao = avaliacao[3]
+                    # Apply filters
+                    filtered_candidatos = []
+                    for cand in candidatos:
+                        id_c, nome, email, total_avaliacoes, ultima_nota = cand
                         
-                        if nota_final >= 8:
-                            status_class = "status-green"
-                            status_text = "✅ Aprovado"
-                            badge_class = "badge-success"
-                        elif nota_final >= 6:
-                            status_class = "status-yellow"
-                            status_text = "⚠️ Em análise"
-                            badge_class = "badge-warning"
+                        # Search filter
+                        if busca and busca.lower() not in nome.lower() and busca.lower() not in email.lower():
+                            continue
+                        
+                        # Status filter
+                        if filtro_status == "Pendentes" and total_avaliacoes > 0:
+                            continue
+                        elif filtro_status == "Avaliados" and total_avaliacoes == 0:
+                            continue
+                        elif filtro_status == "Aprovados" and (not ultima_nota or ultima_nota < 8):
+                            continue
+                        elif filtro_status == "Reprovados" and (not ultima_nota or ultima_nota >= 8):
+                            continue
+                        
+                        # Score filter
+                        if ultima_nota and ultima_nota < nota_min:
+                            continue
+                        
+                        filtered_candidatos.append(cand)
+                    
+                    # Apply sorting
+                    if ordenar == "Nome":
+                        filtered_candidatos.sort(key=lambda x: x[1])
+                    elif ordenar == "Nota (maior)":
+                        filtered_candidatos.sort(key=lambda x: x[4] or -1, reverse=True)
+                    elif ordenar == "Nota (menor)":
+                        filtered_candidatos.sort(key=lambda x: x[4] or 999)
+                    
+                    # Display candidates
+                    if not filtered_candidatos:
+                        st.info("👀 Nenhum candidato encontrado com os filtros selecionados")
+                    
+                    for cand in filtered_candidatos:
+                        id_c, nome, email, total_avaliacoes, ultima_nota = cand
+                        
+                        # Get evaluation details
+                        cursor.execute("""
+                            SELECT nota_final, id, avaliador_email, data
+                            FROM avaliacoes 
+                            WHERE processo_id = %s AND candidato_id = %s 
+                            ORDER BY data DESC 
+                            LIMIT 1
+                        """, (processo_id, id_c))
+                        avaliacao = cursor.fetchone()
+                        
+                        if avaliacao:
+                            nota_final = avaliacao[0]
+                            avaliacao_id = avaliacao[1]
+                            avaliador = avaliacao[2]
+                            data_avaliacao = avaliacao[3]
+                            
+                            if nota_final >= 8:
+                                status_text = "✅ Aprovado"
+                                badge_class = "badge-success"
+                            elif nota_final >= 6:
+                                status_text = "⚠️ Em análise"
+                                badge_class = "badge-warning"
+                            else:
+                                status_text = "❌ Reprovado"
+                                badge_class = "badge-danger"
+                            
+                            status_html = f'<span class="badge {badge_class}">{status_text}</span>'
+                            nota_html = f'⭐ {nota_final:.1f}'
                         else:
-                            status_class = "status-red"
-                            status_text = "❌ Reprovado"
-                            badge_class = "badge-danger"
+                            status_html = '<span class="badge badge-info">⏳ Pendente</span>'
+                            nota_html = '—'
+                            avaliacao_id = None
                         
-                        status_html = f'<span class="badge {badge_class}">{status_text}</span>'
-                        nota_html = f'<span class="{status_class}">⭐ {nota_final:.1f}</span>'
-                    else:
-                        status_html = '<span class="badge badge-info">⏳ Pendente</span>'
-                        nota_html = '<span class="status-gray">—</span>'
-                        avaliacao_id = None
-                    
-                    # Display candidate card
-                    with st.container():
-                        st.markdown(f"""
-                        <div class="card">
-                            <div style="display: flex; justify-content: space-between; align-items: start;">
-                                <div>
-                                    <h3 style="margin: 0;">{nome} {status_html}</h3>
-                                    <p style="margin: 5px 0; color: #9CA3AF;">📧 {email}</p>
-                                    <p style="margin: 5px 0; font-size: 14px;">
-                                        {nota_html}
-                                    </p>
+                        # Display candidate card
+                        with st.container():
+                            st.markdown(f"""
+                            <div class="card">
+                                <div style="display: flex; justify-content: space-between; align-items: start;">
+                                    <div>
+                                        <h3 style="margin: 0;">{nome} {status_html}</h3>
+                                        <p style="margin: 5px 0; color: #9CA3AF;">📧 {email}</p>
+                                        <p style="margin: 5px 0; font-size: 14px;">
+                                            {nota_html}
+                                        </p>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                        """, unsafe_allow_html=True)
-                        
-                        col_actions = st.columns([1, 1, 2])
-                        with col_actions[0]:
-                            if avaliacao_id:
-                                if st.button("🔍 Ver Detalhes", key=f"det_{id_c}", use_container_width=True):
-                                    st.session_state.avaliacao_id = avaliacao_id
-                                    st.session_state.view = "detalhe_avaliacao"
-                                    st.rerun()
-                        
-                        with col_actions[1]:
-                            if not avaliacao_id and status_processo == "Aberto":
-                                if st.button("📝 Avaliar", key=f"avaliar_{id_c}", type="primary", use_container_width=True):
-                                    st.session_state.candidato_id = id_c
-                                    st.session_state.view = "avaliar"
-                                    st.rerun()
-                        
-                        with col_actions[2]:
-                            if avaliacao_id and status_processo == "Aberto":
-                                if st.button("🔄 Reavaliar", key=f"reavaliar_{id_c}", use_container_width=True):
-                                    st.session_state.candidato_id = id_c
-                                    st.session_state.view = "avaliar"
-                                    st.rerun()
+                            """, unsafe_allow_html=True)
+                            
+                            col_actions = st.columns([1, 1, 2])
+                            with col_actions[0]:
+                                if avaliacao_id:
+                                    if st.button("🔍 Ver Detalhes", key=f"det_{id_c}", use_container_width=True):
+                                        st.session_state.avaliacao_id = avaliacao_id
+                                        st.session_state.view = "detalhe_avaliacao"
+                                        st.rerun()
+                            
+                            with col_actions[1]:
+                                if not avaliacao_id and status_processo == "Aberto" and st.session_state.user_role in ["admin", "user"]:
+                                    if st.button("📝 Avaliar", key=f"avaliar_{id_c}", type="primary", use_container_width=True):
+                                        st.session_state.candidato_id = id_c
+                                        st.session_state.view = "avaliar"
+                                        st.rerun()
+                            
+                            with col_actions[2]:
+                                if avaliacao_id and status_processo == "Aberto" and st.session_state.user_role in ["admin", "user"]:
+                                    if st.button("🔄 Reavaliar", key=f"reavaliar_{id_c}", use_container_width=True):
+                                        st.session_state.candidato_id = id_c
+                                        st.session_state.view = "avaliar"
+                                        st.rerun()
         
         elif st.session_state.view == "avaliar":
-            # Avaliar view (same as before, but with user_id)
-            candidato_id = st.session_state.candidato_id
-            processo_id = st.session_state.processo_id
-            
-            # Navigation
-            if st.button("← Voltar", use_container_width=True):
-                st.session_state.view = "processo"
-                st.session_state.candidato_id = None
-                st.rerun()
-            
-            # Get candidate info
-            cursor.execute("SELECT nome, email FROM candidatos WHERE id = %s", (candidato_id,))
-            nome_candidato, email_candidato = cursor.fetchone()
-            
-            cursor.execute("SELECT nome FROM processos WHERE id = %s", (processo_id,))
-            nome_processo = cursor.fetchone()[0]
-            
-            st.title(f"📝 Avaliar: {nome_candidato}")
-            st.caption(f"📧 {email_candidato} | 📂 {nome_processo}")
-            
-            # Evaluation structure (same as before)
-            estrutura = {
-                "Tratamentos": [
-                    {"criterio": "Arquitetura em Camadas (Raw / Staging / Golden)", "peso": 1, "obrigatorio": False, "descricao": "Avalie a organização em camadas de dados"},
-                    {"criterio": "Criação de Dimensões", "peso": 2, "obrigatorio": True, "descricao": "Verifique a criação e gerenciamento de dimensões"},
-                    {"criterio": "Tratamento de Tipagem e Strings", "peso": 2, "obrigatorio": True, "descricao": "Avalie o tratamento de tipos de dados e strings"},
-                    {"criterio": "Deduplicação", "peso": 2, "obrigatorio": True, "descricao": "Verifique estratégias de deduplicação"},
-                    {"criterio": "Modelagem de Dados (Star / Snowflake)", "peso": 3, "obrigatorio": True, "descricao": "Avalie a modelagem dimensional"},
-                ],
-                "Análises": [
-                    {"criterio": "Escolha das Métricas Estratégicas", "peso": 3, "obrigatorio": True, "descricao": "Avalie a relevância das métricas escolhidas"},
-                    {"criterio": "Cálculo Correto das Métricas", "peso": 3, "obrigatorio": True, "descricao": "Verifique a precisão dos cálculos"},
-                    {"criterio": "Storytelling", "peso": 2, "obrigatorio": True, "descricao": "Avalie a capacidade de contar história com dados"},
-                ],
-                "Visual": [
-                    {"criterio": "Organização dos Visuais", "peso": 2, "obrigatorio": True, "descricao": "Avalie a disposição e clareza dos visuais"},
-                    {"criterio": "Paleta de Cores e Tipografia", "peso": 1, "obrigatorio": True, "descricao": "Verifique a escolha de cores e fontes"},
-                ]
-            }
-            
-            soma_ponderada = 0
-            soma_pesos = 0
-            reprovado_por_obrigatorio = False
-            criterios_avaliados = 0
-            total_criterios = sum(len(criterios) for criterios in estrutura.values())
-            
-            # Evaluation criteria
-            for bloco, criterios in estrutura.items():
-                st.divider()
-                st.header(bloco)
+            # Only allow evaluation for users with proper role
+            if st.session_state.user_role not in ["admin", "user"]:
+                st.error("❌ Você não tem permissão para avaliar candidatos")
+                if st.button("← Voltar"):
+                    st.session_state.view = "processo"
+                    st.rerun()
+            else:
+                candidato_id = st.session_state.candidato_id
+                processo_id = st.session_state.processo_id
                 
-                for item in criterios:
-                    criterio = item["criterio"]
-                    peso = item["peso"]
-                    obrigatorio = item["obrigatorio"]
-                    descricao = item.get("descricao", "")
+                # Navigation
+                if st.button("← Voltar", use_container_width=True):
+                    st.session_state.view = "processo"
+                    st.session_state.candidato_id = None
+                    st.rerun()
+                
+                # Get candidate info
+                cursor.execute("SELECT nome, email FROM candidatos WHERE id = %s", (candidato_id,))
+                nome_candidato, email_candidato = cursor.fetchone()
+                
+                cursor.execute("SELECT nome FROM processos WHERE id = %s", (processo_id,))
+                nome_processo = cursor.fetchone()[0]
+                
+                st.title(f"📝 Avaliar: {nome_candidato}")
+                st.caption(f"📧 {email_candidato} | 📂 {nome_processo}")
+                
+                # Evaluation structure
+                estrutura = {
+                    "Tratamentos": [
+                        {"criterio": "Arquitetura em Camadas (Raw / Staging / Golden)", "peso": 1, "obrigatorio": False, "descricao": "Avalie a organização em camadas de dados"},
+                        {"criterio": "Criação de Dimensões", "peso": 2, "obrigatorio": True, "descricao": "Verifique a criação e gerenciamento de dimensões"},
+                        {"criterio": "Tratamento de Tipagem e Strings", "peso": 2, "obrigatorio": True, "descricao": "Avalie o tratamento de tipos de dados e strings"},
+                        {"criterio": "Deduplicação", "peso": 2, "obrigatorio": True, "descricao": "Verifique estratégias de deduplicação"},
+                        {"criterio": "Modelagem de Dados (Star / Snowflake)", "peso": 3, "obrigatorio": True, "descricao": "Avalie a modelagem dimensional"},
+                    ],
+                    "Análises": [
+                        {"criterio": "Escolha das Métricas Estratégicas", "peso": 3, "obrigatorio": True, "descricao": "Avalie a relevância das métricas escolhidas"},
+                        {"criterio": "Cálculo Correto das Métricas", "peso": 3, "obrigatorio": True, "descricao": "Verifique a precisão dos cálculos"},
+                        {"criterio": "Storytelling", "peso": 2, "obrigatorio": True, "descricao": "Avalie a capacidade de contar história com dados"},
+                    ],
+                    "Visual": [
+                        {"criterio": "Organização dos Visuais", "peso": 2, "obrigatorio": True, "descricao": "Avalie a disposição e clareza dos visuais"},
+                        {"criterio": "Paleta de Cores e Tipografia", "peso": 1, "obrigatorio": True, "descricao": "Verifique a escolha de cores e fontes"},
+                    ]
+                }
+                
+                soma_ponderada = 0
+                soma_pesos = 0
+                reprovado_por_obrigatorio = False
+                criterios_avaliados = 0
+                total_criterios = sum(len(criterios) for criterios in estrutura.values())
+                
+                # Evaluation criteria
+                for bloco, criterios in estrutura.items():
+                    st.divider()
+                    st.header(bloco)
                     
-                    key_nota = f"{bloco}_{criterio}"
-                    key_just = f"just_{bloco}_{criterio}"
-                    
-                    if key_nota not in st.session_state:
-                        st.session_state[key_nota] = 5.0
-                    if key_just not in st.session_state:
-                        st.session_state[key_just] = ""
-                    
-                    with st.container():
-                        st.markdown(f"**{criterio}**")
-                        if descricao:
-                            st.caption(f"ℹ️ {descricao}")
+                    for item in criterios:
+                        criterio = item["criterio"]
+                        peso = item["peso"]
+                        obrigatorio = item["obrigatorio"]
+                        descricao = item.get("descricao", "")
                         
-                        col_nota, col_just = st.columns([1, 2])
-                        with col_nota:
-                            nota = st.slider(
-                                f"Nota (Peso: {peso}){' 🔴 Obrigatório' if obrigatorio else ''}",
-                                0.0,
-                                10.0,
-                                st.session_state[key_nota],
-                                step=0.5,
-                                key=key_nota
-                            )
+                        key_nota = f"{bloco}_{criterio}"
+                        key_just = f"just_{bloco}_{criterio}"
+                        
+                        if key_nota not in st.session_state:
+                            st.session_state[key_nota] = 5.0
+                        if key_just not in st.session_state:
+                            st.session_state[key_just] = ""
+                        
+                        with st.container():
+                            st.markdown(f"**{criterio}**")
+                            if descricao:
+                                st.caption(f"ℹ️ {descricao}")
                             
-                            if nota > 0:
-                                criterios_avaliados += 1
-                            
-                            if nota >= 8:
-                                st.markdown("✅ Excelente")
-                            elif nota >= 6:
-                                st.markdown("⚠️ Bom")
-                            else:
-                                st.markdown("❌ Precisa melhorar")
-                        
-                        with col_just:
-                            justificativa = st.text_area(
-                                "Justificativa",
-                                st.session_state[key_just],
-                                key=key_just,
-                                placeholder="Explique sua avaliação..."
-                            )
-                        
-                        soma_ponderada += nota * peso
-                        soma_pesos += peso
-                        
-                        if obrigatorio and nota < 6:
-                            reprovado_por_obrigatorio = True
-            
-            show_progress_bar(criterios_avaliados, total_criterios, "Critérios avaliados:")
-            
-            if soma_pesos > 0:
-                nota_final = round(soma_ponderada / soma_pesos, 2)
-            else:
-                nota_final = 0
-            
-            st.divider()
-            st.subheader("🎯 Resultado Final")
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Nota Final (Ponderada)", f"{nota_final:.1f}")
-            with col2:
-                st.metric("Total de Peso", soma_pesos)
-            with col3:
-                st.metric("Critérios Avaliados", f"{criterios_avaliados}/{total_criterios}")
-            
-            if reprovado_por_obrigatorio:
-                st.error("❌ Reprovado por critério obrigatório abaixo de 6")
-            elif nota_final >= 8:
-                st.success("✅ Recomendado para contratação")
-                st.balloons()
-            elif nota_final >= 6:
-                st.warning("⚠️ Avaliar melhor - Pontos de melhoria identificados")
-            else:
-                st.error("❌ Não recomendado - Necessita desenvolvimento")
-            
-            st.divider()
-            st.subheader("📝 Considerações Finais")
-            
-            comentario_final = st.text_area(
-                "Comentário Final Geral*",
-                placeholder="Resumo da avaliação, pontos fortes, áreas de melhoria..."
-            )
-            
-            if st.button("✅ Salvar Avaliação Final", type="primary", use_container_width=True):
-                if not comentario_final:
-                    st.error("❌ Comentário final é obrigatório")
-                else:
-                    try:
-                        cursor.execute("""
-                            INSERT INTO avaliacoes
-                            (processo_id, candidato_id, nota_final, avaliador_id, comentario_final, data)
-                            VALUES (%s, %s, %s, %s, %s, %s)
-                        """, (processo_id, candidato_id, nota_final, st.session_state.user_id, comentario_final, datetime.now()))
-                        
-                        conn.commit()
-                        avaliacao_id = cursor.lastrowid
-                        
-                        for bloco, criterios in estrutura.items():
-                            for item in criterios:
-                                criterio = item["criterio"]
-                                nota = st.session_state[f"{bloco}_{criterio}"]
-                                justificativa = st.session_state[f"just_{bloco}_{criterio}"]
+                            col_nota, col_just = st.columns([1, 2])
+                            with col_nota:
+                                nota = st.slider(
+                                    f"Nota (Peso: {peso}){' 🔴 Obrigatório' if obrigatorio else ''}",
+                                    0.0,
+                                    10.0,
+                                    st.session_state[key_nota],
+                                    step=0.5,
+                                    key=key_nota
+                                )
                                 
-                                cursor.execute("""
-                                    INSERT INTO avaliacoes_criterios
-                                    (avaliacao_id, bloco, criterio, nota, justificativa)
-                                    VALUES (%s, %s, %s, %s, %s)
-                                """, (avaliacao_id, bloco, criterio, nota, justificativa))
-                        
-                        conn.commit()
-                        
-                        add_notification(f"✅ Avaliação salva com sucesso! Nota final: {nota_final:.1f}", "success")
-                        
-                        st.session_state.view = "processo"
-                        st.session_state.candidato_id = None
-                        st.rerun()
-                        
-                    except Exception as e:
-                        st.error(f"❌ Erro ao salvar avaliação: {str(e)}")
+                                if nota > 0:
+                                    criterios_avaliados += 1
+                                
+                                if nota >= 8:
+                                    st.markdown("✅ Excelente")
+                                elif nota >= 6:
+                                    st.markdown("⚠️ Bom")
+                                else:
+                                    st.markdown("❌ Precisa melhorar")
+                            
+                            with col_just:
+                                justificativa = st.text_area(
+                                    "Justificativa",
+                                    st.session_state[key_just],
+                                    key=key_just,
+                                    placeholder="Explique sua avaliação..."
+                                )
+                            
+                            soma_ponderada += nota * peso
+                            soma_pesos += peso
+                            
+                            if obrigatorio and nota < 6:
+                                reprovado_por_obrigatorio = True
+                
+                show_progress_bar(criterios_avaliados, total_criterios, "Critérios avaliados:")
+                
+                if soma_pesos > 0:
+                    nota_final = round(soma_ponderada / soma_pesos, 2)
+                else:
+                    nota_final = 0
+                
+                st.divider()
+                st.subheader("🎯 Resultado Final")
+                
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Nota Final (Ponderada)", f"{nota_final:.1f}")
+                with col2:
+                    st.metric("Total de Peso", soma_pesos)
+                with col3:
+                    st.metric("Critérios Avaliados", f"{criterios_avaliados}/{total_criterios}")
+                
+                if reprovado_por_obrigatorio:
+                    st.error("❌ Reprovado por critério obrigatório abaixo de 6")
+                elif nota_final >= 8:
+                    st.success("✅ Recomendado para contratação")
+                    st.balloons()
+                elif nota_final >= 6:
+                    st.warning("⚠️ Avaliar melhor - Pontos de melhoria identificados")
+                else:
+                    st.error("❌ Não recomendado - Necessita desenvolvimento")
+                
+                st.divider()
+                st.subheader("📝 Considerações Finais")
+                
+                comentario_final = st.text_area(
+                    "Comentário Final Geral*",
+                    placeholder="Resumo da avaliação, pontos fortes, áreas de melhoria..."
+                )
+                
+                if st.button("✅ Salvar Avaliação Final", type="primary", use_container_width=True):
+                    if not comentario_final:
+                        st.error("❌ Comentário final é obrigatório")
+                    else:
+                        try:
+                            cursor.execute("""
+                                INSERT INTO avaliacoes
+                                (processo_id, candidato_id, nota_final, avaliador_email, comentario_final, data)
+                                VALUES (%s, %s, %s, %s, %s, %s)
+                            """, (processo_id, candidato_id, nota_final, st.session_state.user_email, comentario_final, datetime.now()))
+                            
+                            conn.commit()
+                            avaliacao_id = cursor.lastrowid
+                            
+                            for bloco, criterios in estrutura.items():
+                                for item in criterios:
+                                    criterio = item["criterio"]
+                                    nota = st.session_state[f"{bloco}_{criterio}"]
+                                    justificativa = st.session_state[f"just_{bloco}_{criterio}"]
+                                    
+                                    cursor.execute("""
+                                        INSERT INTO avaliacoes_criterios
+                                        (avaliacao_id, bloco, criterio, nota, justificativa)
+                                        VALUES (%s, %s, %s, %s, %s)
+                                    """, (avaliacao_id, bloco, criterio, nota, justificativa))
+                            
+                            conn.commit()
+                            
+                            add_notification(f"✅ Avaliação salva com sucesso! Nota final: {nota_final:.1f}", "success")
+                            
+                            st.session_state.view = "processo"
+                            st.session_state.candidato_id = None
+                            st.rerun()
+                            
+                        except Exception as e:
+                            st.error(f"❌ Erro ao salvar avaliação: {str(e)}")
         
         elif st.session_state.view == "detalhe_avaliacao":
-            # Detalhe view (same as before)
+            # Detalhe view - accessible by all logged-in users
             avaliacao_id = st.session_state.avaliacao_id
             
             if st.button("← Voltar ao Processo", use_container_width=True):
@@ -1323,7 +1351,7 @@ else:
                 FROM avaliacoes a
                 JOIN candidatos c ON a.candidato_id = c.id
                 JOIN processos p ON a.processo_id = p.id
-                JOIN usuarios u ON a.avaliador_id = u.id
+                JOIN usuarios u ON a.avaliador_email = u.email
                 WHERE a.id = %s
             """, (avaliacao_id,))
             
