@@ -1014,6 +1014,40 @@ else:
         # Caso contrário (dashboard ou qualquer outro valor), mostra dashboard
         else:
             admin_dashboard()
+        
+        # Admin também vê a home com processos e pode criar novos processos
+        st.markdown("""
+        <h1 style="text-align:center; font-size:48px; font-weight:700; background: linear-gradient(90deg, #60A5FA, #A78BFA, #F472B6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom:30px;">
+            SISTEMA DE AVALIAÇÃO TÉCNICA
+        </h1>
+        """, unsafe_allow_html=True)
+        
+        # Botão para criar novo processo (APENAS ADMIN)
+        create_process()
+        
+        st.divider()
+        st.markdown("### 📋 Processos Disponíveis")
+        
+        processos = get_processos()
+        if not processos:
+            st.info("✨ Nenhum processo encontrado.")
+        else:
+            for proc in processos:
+                id_p, nome, area, senioridade, status_proc, local = proc
+                status_badge = '<span class="badge badge-success">🟢 Aberto</span>' if status_proc == "Aberto" else '<span class="badge badge-danger">🔴 Fechado</span>'
+                
+                st.markdown(f"""
+                <div class="card">
+                    <h3>{nome}</h3>
+                    <p>{area} • {senioridade} • {local} {status_badge}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                if st.button("📂 Entrar", key=f"entrar_{id_p}"):
+                    st.session_state.processo_id = id_p
+                    st.session_state.view = "processo"
+                    st.rerun()
+    
     else:
         # Usuários não-admin (user e viewer) vão para o fluxo normal
         if st.session_state.view == "home":
@@ -1062,26 +1096,11 @@ else:
                         st.session_state.processo_id = None
                         st.rerun()
                 
-                if status_processo == "Aberto" and st.session_state.user_role == "admin":
-                    if st.button("🔒 Fechar Processo"):
-                        conn = None
-                        try:
-                            conn = get_connection()
-                            cursor = conn.cursor()
-                            cursor.execute("UPDATE processos SET status = 'Fechado' WHERE id = %s", (processo_id,))
-                            conn.commit()
-                            cursor.close()
-                            add_notification("✅ Processo fechado!", "success")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Erro ao fechar processo: {str(e)}")
-                        finally:
-                            if conn:
-                                return_connection(conn)
-                
+                # Apenas admin pode fechar processo (mas admin já está no bloco admin)
+                # Aqui não precisa porque admin não chega aqui
                 st.divider()
                 
-                # Add Candidate (only for users who can edit)
+                # Adicionar candidato (apenas admin e user podem)
                 if status_processo == "Aberto" and can_edit(st.session_state.user_email):
                     add_candidate(processo_id)
                 
