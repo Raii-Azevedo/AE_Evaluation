@@ -743,9 +743,17 @@ def render_sidebar():
                 admin_option = st.radio(
                     "Menu Admin",
                     ["📊 Dashboard", "📧 Emails", "📈 Relatórios"],
-                    key="admin_menu"
+                    key="admin_menu",
+                    index=0
                 )
-                st.session_state.admin_view = admin_option.lower().replace(" ", "_")
+                
+                # Atualiza o admin_view baseado na seleção
+                if admin_option == "📊 Dashboard":
+                    st.session_state.admin_view = "dashboard"
+                elif admin_option == "📧 Emails":
+                    st.session_state.admin_view = "emails"
+                elif admin_option == "📈 Relatórios":
+                    st.session_state.admin_view = "relatórios"
             
             if st.session_state.view == "processo" and st.session_state.processo_id:
                 stats = get_stats(st.session_state.processo_id)
@@ -790,6 +798,7 @@ def create_process():
                         VALUES (%s, %s, %s, %s, %s, %s)
                     """, (nome, area, senioridade, status, local, descricao))
                     conn.commit()
+                    cursor.close()
                     add_notification(f"✅ Processo '{nome}' criado!", "success")
                     st.rerun()
                 except Exception as e:
@@ -826,6 +835,7 @@ def add_candidate(processo_id):
                     cursor.execute("INSERT INTO processos_candidatos (processo_id, candidato_id) VALUES (%s, %s)",
                                  (processo_id, candidato_id))
                     conn.commit()
+                    cursor.close()
                     add_notification(f"✅ Candidato {nome_c} adicionado!", "success")
                     st.rerun()
                 except Exception as e:
@@ -993,26 +1003,25 @@ else:
     render_sidebar()
     show_notifications()
     
-    # Admin views
-    if st.session_state.user_role == "admin" and st.session_state.admin_view != "dashboard":
+    # Verifica se é admin e qual view administrativa está selecionada
+    if st.session_state.user_role == "admin":
+        # Se admin_view for "emails", mostra gerenciamento de emails
         if st.session_state.admin_view == "emails":
             admin_manage_emails()
+        # Se admin_view for "relatórios", mostra relatórios
         elif st.session_state.admin_view == "relatórios":
             admin_relatorios()
+        # Caso contrário (dashboard ou qualquer outro valor), mostra dashboard
         else:
             admin_dashboard()
     else:
-        # Regular app flow
+        # Usuários não-admin (user e viewer) vão para o fluxo normal
         if st.session_state.view == "home":
             st.markdown("""
             <h1 style="text-align:center; font-size:48px; font-weight:700; background: linear-gradient(90deg, #60A5FA, #A78BFA, #F472B6); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom:30px;">
                 SISTEMA DE AVALIAÇÃO TÉCNICA
             </h1>
             """, unsafe_allow_html=True)
-            
-            # Create Process Section (only for admin)
-            if st.session_state.user_role == "admin":
-                create_process()
             
             st.divider()
             st.markdown("### 📋 Processos Disponíveis")
@@ -1061,6 +1070,7 @@ else:
                             cursor = conn.cursor()
                             cursor.execute("UPDATE processos SET status = 'Fechado' WHERE id = %s", (processo_id,))
                             conn.commit()
+                            cursor.close()
                             add_notification("✅ Processo fechado!", "success")
                             st.rerun()
                         except Exception as e:
@@ -1146,9 +1156,12 @@ else:
                     cursor = conn.cursor()
                     cursor.execute("SELECT nome, email FROM candidatos WHERE id = %s", (candidato_id,))
                     nome_candidato, email_candidato = cursor.fetchone()
+                    cursor.close()
                     
+                    cursor = conn.cursor()
                     cursor.execute("SELECT nome, area FROM processos WHERE id = %s", (processo_id,))
                     nome_processo, area_processo = cursor.fetchone()
+                    cursor.close()
                     
                     st.title(f"📝 Avaliar: {nome_candidato}")
                     st.caption(f"📧 {email_candidato} | 📂 {nome_processo} | Área: {area_processo}")
@@ -1212,5 +1225,3 @@ else:
                         if just:
                             st.write("**Justificativa:**")
                             st.write(just)
-
-       
