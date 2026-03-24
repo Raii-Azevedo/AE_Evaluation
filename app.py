@@ -1213,5 +1213,4 @@ else:
                             st.write("**Justificativa:**")
                             st.write(just)
 
-        cursor.close()
-        return_connection(conn)
+       
