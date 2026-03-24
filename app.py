@@ -976,6 +976,7 @@ def evaluation_form(candidato_id, processo_id, nome_candidato, email_candidato, 
                                 VALUES (%s, %s, %s, %s, %s)
                             """, (avaliacao_id, bloco, criterio, nota, just))
                     conn.commit()
+                    cursor.close()
                     add_notification(f"✅ Avaliação salva! Nota: {nota_final}", "success")
                     st.session_state.view = "processo"
                     st.rerun()
