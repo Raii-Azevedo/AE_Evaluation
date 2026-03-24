@@ -1,1464 +1,1156 @@
 import streamlit as st
 import pandas as pd
-from database import init_db, get_connection, return_connection
-from allowed_emails import is_email_allowed, is_admin, is_viewer, can_edit, get_user_role, add_allowed_email, remove_allowed_email, get_all_allowed_emails
-from criterios_areas import get_criterios_por_area, get_areas_disponiveis
+import io
+import time
+from datetime import datetime
+from database import init_db, get_connection
+from functools import wraps
 
-st.set_page_config(page_title="Sistema de Avaliação Técnica", layout="wide", initial_sidebar_state="collapsed")
+# ===== PAGE CONFIG =====
+st.set_page_config(
+    page_title="Sistema de Avaliação Técnica",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-# ===== CACHED DATABASE QUERIES =====
-@st.cache_data(ttl=60)  # Cache for 1 minute
-def get_processos_list():
-    """Cached query for processes list"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, nome, area, tipo, senioridade, local, status FROM processos ORDER BY id DESC")
-    processos = cursor.fetchall()
-    cursor.close()
-    return_connection(conn)
-    return processos
+# ===== DATABASE CONNECTION =====
+init_db()
+conn = get_connection()
+cursor = conn.cursor()
 
-@st.cache_data(ttl=60)
-def get_processo_details(processo_id):
-    """Cached query for process details"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT nome, status, area FROM processos WHERE id = %s", (processo_id,))
-    result = cursor.fetchone()
-    cursor.close()
-    return_connection(conn)
-    return result
+# ===== SESSION STATE INITIALIZATION =====
+def init_session_state():
+    """Initialize all session state variables"""
+    defaults = {
+        "view": "home",
+        "processo_id": None,
+        "candidato_id": None,
+        "avaliacao_id": None,
+        "dark_mode": False,
+        "auto_save_enabled": True,
+        "last_save_time": 0,
+        "draft_data": {},
+        "notifications": []
+    }
+    
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
-@st.cache_data(ttl=30)
-def get_candidatos_by_processo(processo_id):
-    """Cached query for candidates by process"""
-    conn = get_connection()
-    cursor = conn.cursor()
+init_session_state()
+
+# ===== HELPER FUNCTIONS =====
+def safe_db_operation(func):
+    """Decorator for safe database operations"""
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            st.error(f"❌ Erro no banco de dados: {str(e)}")
+            return None
+    return wrapper
+
+def add_notification(message, type="info"):
+    """Add notification to session state"""
+    st.session_state.notifications.append({
+        "message": message,
+        "type": type,
+        "timestamp": datetime.now()
+    })
+
+def show_notifications():
+    """Display all notifications"""
+    for notif in st.session_state.notifications[-5:]:  # Show last 5
+        if notif["type"] == "success":
+            st.success(notif["message"])
+        elif notif["type"] == "error":
+            st.error(notif["message"])
+        elif notif["type"] == "warning":
+            st.warning(notif["message"])
+        else:
+            st.info(notif["message"])
+    st.session_state.notifications = []
+
+def show_progress_bar(current, total, label=""):
+    """Show progress bar for evaluation completion"""
+    if total > 0:
+        progress = current / total
+        st.progress(progress)
+        st.caption(f"{label} {current}/{total} itens avaliados")
+
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def get_processos_cached():
+    """Get cached processos data"""
+    cursor.execute("SELECT id, nome, area, senioridade, status, local FROM processos ORDER BY id DESC")
+    return cursor.fetchall()
+
+@st.cache_data(ttl=300)
+def get_candidatos_processo_cached(processo_id):
+    """Get cached candidatos data for a processo"""
     cursor.execute("""
-        SELECT
-            c.id,
-            c.nome,
+        SELECT 
+            c.id, 
+            c.nome, 
             c.email,
-            COUNT(a.id) as total_avaliacoes
+            COUNT(a.id) as total_avaliacoes,
+            MAX(a.nota_final) as ultima_nota
         FROM processos_candidatos pc
         JOIN candidatos c ON pc.candidato_id = c.id
         LEFT JOIN avaliacoes a
-            ON c.id = a.candidato_id AND a.processo_id = %s
-        WHERE pc.processo_id = %s
+            ON c.id = a.candidato_id AND a.processo_id = ?
+        WHERE pc.processo_id = ?
         GROUP BY c.id
         ORDER BY c.nome
     """, (processo_id, processo_id))
-    candidatos = cursor.fetchall()
-    cursor.close()
-    return_connection(conn)
-    return candidatos
+    return cursor.fetchall()
 
-@st.cache_data(ttl=30)
-def get_avaliacao_by_candidato(processo_id, candidato_id):
-    """Cached query for evaluation by candidate"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT nota_final, id
-        FROM avaliacoes
-        WHERE processo_id = %s AND candidato_id = %s
-        ORDER BY data DESC
-        LIMIT 1
-    """, (processo_id, candidato_id))
-    avaliacao = cursor.fetchone()
-    cursor.close()
-    return_connection(conn)
-    return avaliacao
+def export_to_csv(data, filename):
+    """Export data to CSV"""
+    if data:
+        df = pd.DataFrame(data)
+        csv = df.to_csv(index=False)
+        return st.download_button(
+            label="📥 Exportar para CSV",
+            data=csv,
+            file_name=filename,
+            mime="text/csv",
+            key=f"export_{filename}_{time.time()}"
+        )
+    return None
 
-@st.cache_data(ttl=30)
-def get_avaliacao_details(avaliacao_id):
-    """Cached query for evaluation details"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT nota_final, avaliador, comentario_final
-        FROM avaliacoes
-        WHERE id = %s
-    """, (avaliacao_id,))
-    avaliacao = cursor.fetchone()
-    cursor.close()
-    return_connection(conn)
-    return avaliacao
+def confirm_action(action_name, key_prefix=""):
+    """Add confirmation dialog for destructive actions"""
+    confirm_key = f"confirm_{key_prefix}_{action_name}"
+    
+    if st.button(action_name, key=f"btn_{confirm_key}"):
+        with st.popover("⚠️ Confirmar ação"):
+            st.warning("Tem certeza que deseja realizar esta ação?")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("✅ Sim", key=f"yes_{confirm_key}"):
+                    return True
+            with col2:
+                if st.button("❌ Não", key=f"no_{confirm_key}"):
+                    return False
+    return False
 
-@st.cache_data(ttl=30)
-def get_avaliacao_criterios(avaliacao_id):
-    """Cached query for evaluation criteria"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT bloco, criterio, nota, justificativa
-        FROM avaliacoes_criterios
-        WHERE avaliacao_id = %s
-        ORDER BY bloco
-    """, (avaliacao_id,))
-    criterios = cursor.fetchall()
-    cursor.close()
-    return_connection(conn)
-    return criterios
-
-@st.cache_data(ttl=120)
-def get_statistics():
-    """Cached query for statistics"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT COUNT(*) FROM processos")
-    total_processos = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM processos WHERE status = 'Aberto'")
-    processos_abertos = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM candidatos")
-    total_candidatos = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT COUNT(*) FROM avaliacoes")
-    total_avaliacoes = cursor.fetchone()[0]
-    
-    cursor.execute("""
-        SELECT COUNT(DISTINCT c.id)
-        FROM candidatos c
-        LEFT JOIN avaliacoes a ON c.id = a.candidato_id
-        WHERE a.id IS NULL
-    """)
-    candidatos_pendentes = cursor.fetchone()[0]
-    
-    cursor.execute("SELECT AVG(nota_final) FROM avaliacoes")
-    media_geral = cursor.fetchone()[0]
-    media_geral = round(float(media_geral), 2) if media_geral else 0
-    
-    cursor.close()
-    return_connection(conn)
-    
-    return {
-        'total_processos': total_processos,
-        'processos_abertos': processos_abertos,
-        'total_candidatos': total_candidatos,
-        'total_avaliacoes': total_avaliacoes,
-        'candidatos_pendentes': candidatos_pendentes,
-        'media_geral': media_geral
+def save_draft(estrutura, processo_id, candidato_id):
+    """Save evaluation draft"""
+    draft = {
+        "processo_id": processo_id,
+        "candidato_id": candidato_id,
+        "data": datetime.now().isoformat(),
+        "avaliacoes": {}
     }
-
-@st.cache_data(ttl=120)
-def get_processos_stats():
-    """Cached query for process statistics"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT
-            p.nome,
-            p.area,
-            p.status,
-            COUNT(DISTINCT pc.candidato_id) as total_candidatos,
-            COUNT(DISTINCT a.id) as total_avaliacoes,
-            AVG(a.nota_final) as media_notas
-        FROM processos p
-        LEFT JOIN processos_candidatos pc ON p.id = pc.processo_id
-        LEFT JOIN avaliacoes a ON p.id = a.processo_id
-        GROUP BY p.id, p.nome, p.area, p.status
-        ORDER BY p.id DESC
-    """)
-    processos_stats = cursor.fetchall()
-    cursor.close()
-    return_connection(conn)
-    return processos_stats
-
-@st.cache_data(ttl=120)
-def get_top_candidatos():
-    """Cached query for top candidates"""
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT
-            c.nome,
-            c.email,
-            MAX(a.nota_final) as melhor_nota,
-            COUNT(a.id) as num_avaliacoes
-        FROM candidatos c
-        JOIN avaliacoes a ON c.id = a.candidato_id
-        GROUP BY c.id, c.nome, c.email
-        ORDER BY MAX(a.nota_final) DESC
-        LIMIT 10
-    """)
-    top_candidatos = cursor.fetchall()
-    cursor.close()
-    return_connection(conn)
-    return top_candidatos
-
-def clear_processo_cache():
-    """Clear all process-related caches"""
-    get_processos_list.clear()
-    get_statistics.clear()
-    get_processos_stats.clear()
-
-def clear_candidato_cache():
-    """Clear all candidate-related caches"""
-    get_candidatos_by_processo.clear()
-    get_avaliacao_by_candidato.clear()
-    get_statistics.clear()
-    get_processos_stats.clear()
-    get_top_candidatos.clear()
-
-def clear_avaliacao_cache():
-    """Clear all evaluation-related caches"""
-    get_avaliacao_by_candidato.clear()
-    get_avaliacao_details.clear()
-    get_avaliacao_criterios.clear()
-    get_statistics.clear()
-    get_processos_stats.clear()
-    get_top_candidatos.clear()
-
-# ===== ESTILO APRIMORADO =====
-st.markdown("""
-<style>
-/* Background e tema geral */
-.stApp { 
-    background: linear-gradient(135deg, #0B1E3D 0%, #1e3a5f 50%, #2d5a8a 100%); 
-}
-
-/* Cards com efeito glassmorphism */
-.card { 
-    background: linear-gradient(135deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05)); 
-    backdrop-filter: blur(20px); 
-    padding: 32px; 
-    border-radius: 24px; 
-    margin-bottom: 24px; 
-    border: 1px solid rgba(255,255,255,0.18); 
-    box-shadow: 0px 8px 32px rgba(0,0,0,0.3);
-    transition: all 0.3s ease;
-}
-
-.card:hover { 
-    transform: translateY(-4px); 
-    box-shadow: 0px 16px 48px rgba(0,0,0,0.4);
-    border: 1px solid rgba(255,255,255,0.25);
-}
-
-/* Login card especial */
-.login-card {
-    background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(147,51,234,0.15));
-    backdrop-filter: blur(20px);
-    padding: 48px;
-    border-radius: 24px;
-    border: 1px solid rgba(255,255,255,0.2);
-    box-shadow: 0px 16px 48px rgba(0,0,0,0.4);
-    max-width: 500px;
-    margin: 80px auto;
-}
-
-/* Status badges */
-.status-green { 
-    color: #10b981; 
-    font-weight: 700; 
-    font-size: 16px;
-    background: rgba(16,185,129,0.1);
-    padding: 6px 16px;
-    border-radius: 12px;
-    display: inline-block;
-}
-
-.status-yellow { 
-    color: #f59e0b; 
-    font-weight: 700; 
-    font-size: 16px;
-    background: rgba(245,158,11,0.1);
-    padding: 6px 16px;
-    border-radius: 12px;
-    display: inline-block;
-}
-
-.status-red { 
-    color: #ef4444; 
-    font-weight: 700; 
-    font-size: 16px;
-    background: rgba(239,68,68,0.1);
-    padding: 6px 16px;
-    border-radius: 12px;
-    display: inline-block;
-}
-
-.status-gray { 
-    color: #9ca3af; 
-    font-weight: 700; 
-    font-size: 16px;
-    background: rgba(156,163,175,0.1);
-    padding: 6px 16px;
-    border-radius: 12px;
-    display: inline-block;
-}
-
-/* Títulos e textos */
-h1, h2, h3, h4 { 
-    color: white !important; 
-    font-weight: 700 !important;
-}
-
-h1 { 
-    font-size: 42px !important; 
-    margin-bottom: 24px !important;
-}
-
-h2 { 
-    font-size: 32px !important; 
-    margin-bottom: 20px !important;
-}
-
-h3 { 
-    font-size: 24px !important; 
-    margin-bottom: 16px !important;
-}
-
-p, label, .stMarkdown { 
-    color: rgba(255,255,255,0.9) !important; 
-}
-
-/* Botões modernos */
-.stButton>button { 
-    border-radius: 16px !important; 
-    height: 48px !important; 
-    font-weight: 600 !important; 
-    border: none !important; 
-    background: linear-gradient(135deg, #3B82F6, #8B5CF6) !important; 
-    color: white !important; 
-    transition: all 0.3s ease !important;
-    box-shadow: 0px 4px 12px rgba(59,130,246,0.3) !important;
-    font-size: 15px !important;
-}
-
-.stButton>button:hover { 
-    transform: translateY(-2px) !important; 
-    box-shadow: 0px 8px 24px rgba(139,92,246,0.5) !important;
-    background: linear-gradient(135deg, #2563EB, #7C3AED) !important;
-}
-
-/* Inputs modernos */
-.stTextInput>div>div>input, 
-.stTextArea textarea, 
-.stSelectbox>div>div>select { 
-    border-radius: 16px !important; 
-    background-color: rgba(255,255,255,0.1) !important; 
-    color: white !important; 
-    border: 1px solid rgba(255,255,255,0.2) !important;
-    padding: 12px 16px !important;
-    font-size: 15px !important;
-    transition: all 0.3s ease !important;
-}
-
-.stTextInput>div>div>input:focus, 
-.stTextArea textarea:focus,
-.stSelectbox>div>div>select:focus { 
-    border: 1px solid rgba(139,92,246,0.6) !important;
-    box-shadow: 0px 0px 0px 3px rgba(139,92,246,0.2) !important;
-    background-color: rgba(255,255,255,0.15) !important;
-}
-
-/* Sliders */
-.stSlider>div>div>div>div {
-    background: linear-gradient(90deg, #3B82F6, #8B5CF6) !important;
-}
-
-/* Expanders */
-.streamlit-expanderHeader {
-    background-color: rgba(255,255,255,0.08) !important;
-    border-radius: 16px !important;
-    color: white !important;
-    font-weight: 600 !important;
-    border: 1px solid rgba(255,255,255,0.15) !important;
-}
-
-/* Dividers */
-hr {
-    border-color: rgba(255,255,255,0.15) !important;
-    margin: 32px 0 !important;
-}
-
-/* Métricas */
-.stMetric {
-    background: rgba(255,255,255,0.08);
-    padding: 20px;
-    border-radius: 16px;
-    border: 1px solid rgba(255,255,255,0.15);
-}
-
-/* Radio buttons */
-.stRadio>div {
-    background: rgba(255,255,255,0.05);
-    padding: 12px;
-    border-radius: 16px;
-}
-
-/* Captions */
-.caption {
-    color: rgba(255,255,255,0.6) !important;
-    font-size: 14px !important;
-}
-
-/* Success/Warning/Error messages */
-.stSuccess, .stWarning, .stError, .stInfo {
-    border-radius: 16px !important;
-    padding: 16px !important;
-    backdrop-filter: blur(10px) !important;
-}
-</style>
-""", unsafe_allow_html=True)
-
-# ===== DB =====
-# Initialize database only once using session state
-if 'db_initialized' not in st.session_state:
-    init_db()
-    st.session_state.db_initialized = True
-
-# ===== SESSION STATE =====
-if "authenticated" not in st.session_state:
-    st.session_state.authenticated = False
-if "user_email" not in st.session_state:
-    st.session_state.user_email = None
-if "view" not in st.session_state:
-    st.session_state.view = "home"
-if "processo_id" not in st.session_state:
-    st.session_state.processo_id = None
-if "candidato_id" not in st.session_state:
-    st.session_state.candidato_id = None
-if "avaliacao_id" not in st.session_state:
-    st.session_state.avaliacao_id = None
-
-# Função para resetar avaliação
-def reset_avaliacao(estrutura):
+    
     for bloco, criterios in estrutura.items():
         for item in criterios:
             criterio = item["criterio"]
-            st.session_state[f"{bloco}_{criterio}"] = 5.0
-            st.session_state[f"just_{bloco}_{criterio}"] = ""
-
-# =====================================================
-# 🔐 LOGIN PAGE
-# =====================================================
-if not st.session_state.authenticated:
+            key_nota = f"{bloco}_{criterio}"
+            key_just = f"just_{bloco}_{criterio}"
+            
+            if key_nota in st.session_state:
+                draft["avaliacoes"][key_nota] = st.session_state[key_nota]
+            if key_just in st.session_state:
+                draft["avaliacoes"][key_just] = st.session_state[key_just]
     
-    # Logo e título animado
-    st.markdown("""
-    <div style="text-align:center; margin-top: 80px; margin-bottom: 60px;">
-        <div style="
+    st.session_state.draft_data = draft
+    return True
+
+def load_draft():
+    """Load evaluation draft"""
+    if st.session_state.draft_data:
+        for key, value in st.session_state.draft_data.get("avaliacoes", {}).items():
+            st.session_state[key] = value
+        return True
+    return False
+
+# ===== STYLES =====
+def get_styles(dark_mode=False):
+    """Get CSS styles based on mode"""
+    if dark_mode:
+        return """
+        <style>
+        /* Dark Mode Styles */
+        .stApp { 
+            background: linear-gradient(135deg, #0B1E3D 0%, #1E1E2F 40%, #2D1B3A 100%);
+        }
+        .card {
+            background: linear-gradient(135deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03));
+            backdrop-filter: blur(12px);
+            padding: 28px;
+            border-radius: 20px;
+            margin-bottom: 25px;
+            border: 1px solid rgba(255,255,255,0.1);
+            box-shadow: 0px 10px 30px rgba(0,0,0,0.35);
+            transition: all 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0px 20px 40px rgba(0,0,0,0.5);
+            border-color: rgba(255,255,255,0.2);
+        }
+        .badge {
             display: inline-block;
-            background: linear-gradient(135deg, rgba(59,130,246,0.2), rgba(147,51,234,0.2));
-            padding: 30px;
-            border-radius: 50%;
-            margin-bottom: 30px;
-            box-shadow: 0px 20px 60px rgba(59,130,246,0.4);
-            animation: pulse 2s ease-in-out infinite;
-        ">
-            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 2L2 7L12 12L22 7L12 2Z" fill="url(#gradient1)" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M2 17L12 22L22 17" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                <path d="M2 12L12 17L22 12" stroke="white" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                <defs>
-                    <linearGradient id="gradient1" x1="2" y1="2" x2="22" y2="12">
-                        <stop offset="0%" style="stop-color:#60A5FA;stop-opacity:1" />
-                        <stop offset="100%" style="stop-color:#A78BFA;stop-opacity:1" />
-                    </linearGradient>
-                </defs>
-            </svg>
-        </div>
-        <h1 style="
-            font-size:64px;
-            font-weight:900;
-            letter-spacing:-3px;
-            background: linear-gradient(135deg, #60A5FA 0%, #A78BFA 50%, #F472B6 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom:20px;
-            text-shadow: 0px 4px 20px rgba(96,165,250,0.3);
-        ">
-            Artefact Evaluation
-        </h1>
-        <p style="font-size:20px; color:rgba(255,255,255,0.8); margin-bottom:10px; font-weight:500;">
-            Sistema de Avaliação Técnica
-        </p>
-        <p style="font-size:16px; color:rgba(255,255,255,0.5);">
-            🔐 Acesso restrito a colaboradores autorizados
-        </p>
-    </div>
-    
-    <style>
-        @keyframes pulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.05); }
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
         }
-        
-        @keyframes slideUp {
-            from {
-                opacity: 0;
-                transform: translateY(30px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+        .badge-success { background: rgba(34,197,94,0.2); color: #22c55e; }
+        .badge-warning { background: rgba(250,204,21,0.2); color: #facc15; }
+        .badge-danger { background: rgba(239,68,68,0.2); color: #ef4444; }
+        .badge-info { background: rgba(59,130,246,0.2); color: #60a5fa; }
+        .status-green { color: #22c55e; font-weight: bold; }
+        .status-yellow { color: #facc15; font-weight: bold; }
+        .status-red { color: #ef4444; font-weight: bold; }
+        .status-gray { color: #9ca3af; font-weight: bold; }
+        h1, h2, h3, h4, h5, h6, p, span, label { color: #f3f4f6; }
+        .stButton>button {
+            border-radius: 12px;
+            height: 44px;
+            font-weight: 600;
+            border: none;
+            background: linear-gradient(135deg, #3B82F6, #EC4899);
+            color: white;
+            transition: all 0.25s ease;
         }
-        
-        .login-container {
-            animation: slideUp 0.6s ease-out;
+        .stButton>button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0px 10px 20px rgba(236,72,153,0.5);
         }
-    </style>
-    """, unsafe_allow_html=True)
+        .stTextInput>div>div>input, .stTextArea textarea, .stSelectbox>div>div {
+            border-radius: 12px !important;
+            background-color: rgba(255,255,255,0.08) !important;
+            color: white !important;
+            border: 1px solid rgba(255,255,255,0.15) !important;
+        }
+        .stMetric {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 15px;
+        }
+        hr {
+            border-color: rgba(255,255,255,0.1);
+        }
+        </style>
+        """
+    else:
+        return """
+        <style>
+        /* Light Mode Styles */
+        .stApp { 
+            background: linear-gradient(135deg, #f5f7fa 0%, #e8edf5 100%);
+        }
+        .card {
+            background: white;
+            padding: 28px;
+            border-radius: 20px;
+            margin-bottom: 25px;
+            box-shadow: 0px 4px 15px rgba(0,0,0,0.08);
+            transition: all 0.3s ease;
+            border: 1px solid #e5e7eb;
+        }
+        .card:hover {
+            transform: translateY(-6px);
+            box-shadow: 0px 12px 30px rgba(0,0,0,0.12);
+        }
+        .badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 10px;
+        }
+        .badge-success { background: #d1fae5; color: #065f46; }
+        .badge-warning { background: #fed7aa; color: #92400e; }
+        .badge-danger { background: #fee2e2; color: #991b1b; }
+        .badge-info { background: #dbeafe; color: #1e40af; }
+        .status-green { color: #059669; font-weight: bold; }
+        .status-yellow { color: #d97706; font-weight: bold; }
+        .status-red { color: #dc2626; font-weight: bold; }
+        .status-gray { color: #6b7280; font-weight: bold; }
+        h1, h2, h3, h4, h5, h6 { color: #111827; }
+        p, span, label { color: #374151; }
+        .stButton>button {
+            border-radius: 12px;
+            height: 44px;
+            font-weight: 600;
+            border: none;
+            background: linear-gradient(135deg, #3B82F6, #EC4899);
+            color: white;
+            transition: all 0.25s ease;
+        }
+        .stButton>button:hover {
+            transform: translateY(-3px);
+            box-shadow: 0px 10px 20px rgba(236,72,153,0.3);
+        }
+        .stMetric {
+            background: white;
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0px 1px 3px rgba(0,0,0,0.1);
+        }
+        </style>
+        """
+
+# Apply styles
+st.markdown(get_styles(st.session_state.dark_mode), unsafe_allow_html=True)
+
+# ===== SIDEBAR =====
+with st.sidebar:
+    st.markdown("### 🎯 Sistema de Avaliação")
+    st.markdown("---")
     
-    # Container centralizado para o login
-    col1, col2, col3 = st.columns([1, 1.5, 1])
-    
-    with col2:
-        # Input de email com estilo
-        st.markdown("""
-        <div style="margin-bottom:20px; margin-top:20px;">
-            <label style="
-                display:block;
-                font-size:14px;
-                font-weight:600;
-                color:rgba(255,255,255,0.9);
-                margin-bottom:8px;
-            ">
-                📧 Email Corporativo
-            </label>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        email_input = st.text_input(
-            "Email",
-            placeholder="seu.nome@artefact.com",
-            key="login_email",
-            label_visibility="collapsed"
-        )
-        
-        st.markdown("<div style='margin-bottom:25px;'></div>", unsafe_allow_html=True)
-        
-        # Botão de login estilizado
-        if st.button("🚀 Entrar no Sistema", use_container_width=True, key="login_btn"):
-            if is_email_allowed(email_input):
-                st.session_state.authenticated = True
-                st.session_state.user_email = email_input
-                st.success(f"✅ Bem-vindo(a), {email_input.split('@')[0]}!")
-                st.balloons()
-                st.rerun()
-            else:
-                st.error("❌ Acesso negado. Apenas emails @artefact.com são permitidos.")
-        
-        # Informações adicionais
-        st.markdown("""
-        <div style="
-            margin-top:30px;
-            padding:20px;
-            background:rgba(59,130,246,0.1);
-            border-radius:16px;
-            border-left:4px solid #3B82F6;
-        ">
-            <p style="font-size:13px; color:rgba(255,255,255,0.8); margin:0;">
-                <strong>ℹ️ Informação:</strong><br>
-                Apenas emails <strong>previamente cadastrados</strong> têm acesso autorizado ao sistema. Entre em contato com um administrador para solicitar acesso.
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    # Footer
-    st.markdown("""
-    <div style="
-        text-align:center;
-        margin-top:80px;
-        padding-top:30px;
-        border-top:1px solid rgba(255,255,255,0.1);
-    ">
-        <p style="color:rgba(255,255,255,0.4); font-size:13px; margin-bottom:8px;">
-            🔒 Conexão segura e criptografada
-        </p>
-        <p style="color:rgba(255,255,255,0.3); font-size:12px;">
-            © 2026 Artefact - Todos os direitos reservados
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.stop()
-
-# =====================================================
-# HEADER COM LOGOUT E NAVEGAÇÃO
-# =====================================================
-user_role = get_user_role(st.session_state.user_email)
-role_badge = {
-    'admin': '👑 Admin',
-    'user': '👤 User',
-    'viewer': '👁️ Viewer'
-}.get(user_role, '👤 User')
-
-role_color = {
-    'admin': '#F472B6',
-    'user': '#60A5FA',
-    'viewer': '#9ca3af'
-}.get(user_role, '#60A5FA')
-
-col_h1, col_h2, col_h3, col_h4, col_h5 = st.columns([2, 1, 1, 1, 1])
-
-with col_h1:
-    st.markdown(f"""
-    <p style="color:rgba(255,255,255,0.7); font-size:14px; margin-top:16px;">
-        <strong>{st.session_state.user_email}</strong>
-        <span style="background:{role_color}20; color:{role_color}; padding:4px 12px; border-radius:8px; font-size:12px; margin-left:8px;">{role_badge}</span>
-    </p>
-    """, unsafe_allow_html=True)
-
-with col_h2:
-    if st.button("🏠 Início", key="nav_home"):
-        st.session_state.view = "home"
-        st.rerun()
-
-with col_h3:
-    if st.button("📊 Estatísticas", key="nav_stats"):
-        st.session_state.view = "statistics"
-        st.rerun()
-
-with col_h4:
-    if is_admin(st.session_state.user_email):
-        if st.button("⚙️ Admin", key="nav_admin"):
-            st.session_state.view = "admin"
+    # Dark mode toggle
+    if st.toggle("🌙 Modo Escuro", value=st.session_state.dark_mode):
+        if not st.session_state.dark_mode:
+            st.session_state.dark_mode = True
             st.rerun()
+    else:
+        if st.session_state.dark_mode:
+            st.session_state.dark_mode = False
+            st.rerun()
+    
+    st.markdown("---")
+    
+    # Auto-save toggle
+    st.session_state.auto_save_enabled = st.toggle(
+        "💾 Auto-save",
+        value=st.session_state.auto_save_enabled,
+        help="Salvar rascunho automaticamente a cada 30 segundos"
+    )
+    
+    st.markdown("---")
+    
+    # Statistics (if in processo view)
+    if st.session_state.view == "processo" and st.session_state.processo_id:
+        cursor.execute("""
+            SELECT 
+                COUNT(DISTINCT c.id) as total_candidatos,
+                COUNT(a.id) as total_avaliacoes,
+                AVG(a.nota_final) as media_geral,
+                SUM(CASE WHEN a.nota_final >= 8 THEN 1 ELSE 0 END) as aprovados
+            FROM processos_candidatos pc
+            JOIN candidatos c ON pc.candidato_id = c.id
+            LEFT JOIN avaliacoes a ON c.id = a.candidato_id AND a.processo_id = ?
+            WHERE pc.processo_id = ?
+        """, (st.session_state.processo_id, st.session_state.processo_id))
+        
+        stats = cursor.fetchone()
+        if stats and stats[0] > 0:
+            st.markdown("### 📊 Estatísticas")
+            st.metric("Total Candidatos", stats[0])
+            st.metric("Avaliações Realizadas", stats[1] or 0)
+            st.metric("Média Geral", f"{stats[2]:.1f}" if stats[2] else "—")
+            st.metric("Aprovados", stats[3] or 0)
+    
+    st.markdown("---")
+    st.caption("💡 Dica: Use Ctrl+S para salvar rapidamente")
+    st.caption(f"🕒 Último auto-save: {datetime.fromtimestamp(st.session_state.last_save_time).strftime('%H:%M:%S') if st.session_state.last_save_time else 'Nunca'}")
 
-with col_h5:
-    if st.button("🚪 Sair", key="logout_btn"):
-        st.session_state.authenticated = False
-        st.session_state.user_email = None
-        st.session_state.view = "home"
-        st.rerun()
-
-# Mostrar aviso para viewers
-if is_viewer(st.session_state.user_email):
-    st.info("👁️ Você está no modo visualização. Você pode ver todas as informações mas não pode criar ou editar.")
-
-st.markdown("<hr>", unsafe_allow_html=True)
+# ===== MAIN CONTENT =====
+# Show notifications
+show_notifications()
 
 # =====================================================
 # 🏠 HOME
 # =====================================================
 if st.session_state.view == "home":
-
+    
     st.markdown("""
     <h1 style="
         text-align:center;
-        font-size:48px;
-        font-weight:700;
-        letter-spacing:-1.5px;
-        background: linear-gradient(90deg, #60A5FA, #A78BFA, #F472B6);
+        font-size:52px;
+        font-weight:800;
+        letter-spacing:-2px;
+        background: linear-gradient(135deg, #3B82F6, #EC4899, #A855F7);
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
-        margin-bottom:40px;
+        margin-bottom:20px;
     ">
-        PROCESSOS SELETIVOS
+        🚀 SISTEMA DE AVALIAÇÃO TÉCNICA
     </h1>
+    <p style="text-align:center; font-size:18px; margin-bottom:40px;">
+        Avalie candidatos de forma estruturada e eficiente
+    </p>
     """, unsafe_allow_html=True)
-
-    # Apenas administradores podem criar processos
-    if is_admin(st.session_state.user_email):
-        with st.expander("➕ Criar Novo Processo", expanded=False):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                nome = st.text_input("Nome do Processo", key="novo_nome_processo")
-                area = st.selectbox("Área", get_areas_disponiveis(), key="novo_area_processo")
-                tipo = st.selectbox("Tipo", [
-                    "Ampla Concorrência",
-                    "Afirmativa: Mulheres Cis e Trans",
-                    "Afirmativa: Pessoas Negras",
-                    "Afirmativa: LGBTQIAPN+"
-                ], key="novo_tipo_processo")
-            
-            with col2:
-                senioridade = st.selectbox("Senioridade", ["Estágio","Pleno" ], key="novo_senioridade")
-                status = st.selectbox("Status", ["Aberto", "Fechado"], key="novo_status")
-                local = st.selectbox("Local", ["BRASIL", "COLOMBIA", "MEXICO"], key="novo_local_processo")
-
-            if st.button("✨ Criar Processo", use_container_width=True):
-                conn = get_connection()
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO processos (nome, area, tipo, senioridade, status, local)
-                    VALUES (%s, %s, %s, %s, %s, %s)
-                """, (nome, area, tipo, senioridade, status, local))
-                conn.commit()
-                cursor.close()
-                return_connection(conn)
-                clear_processo_cache()
-                st.success("✅ Processo criado com sucesso!")
-                st.rerun()
-
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    # Listar processos (usando cache)
-    processos = get_processos_list()
-
-    if not processos:
-        st.info("📋 Nenhum processo cadastrado ainda. Crie o primeiro!")
-    else:
-        for id_p, nome, area, tipo, senioridade, local, status in processos:
-            status_badge = "🟢" if status == "Aberto" else "🔴"
-            
-            st.markdown(f"""
-            <div class="card">
-                <h3>{status_badge} {nome}</h3>
-                <p style="color:#9CA3AF; font-size:15px; margin-top:8px;">
-                    <strong>Área:</strong> {area} | 
-                    <strong>Tipo:</strong> {tipo} | 
-                    <strong>Senioridade:</strong> {senioridade} | 
-                    <strong>Local:</strong> {local}
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            col1, col2 = st.columns([5, 1])
-            with col2:
-                if st.button("Abrir →", key=f"entrar_{id_p}", use_container_width=True):
-                    st.session_state.processo_id = id_p
-                    st.session_state.view = "processo"
+    
+    # Create Process Section
+    with st.expander("➕ Criar Novo Processo Seletivo", expanded=False):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            nome = st.text_input("Nome do Processo*", key="novo_nome_processo")
+            area = st.selectbox(
+                "Área*",
+                ["Analytics Engineer", "Data Engineer", "Data Scientist", "Business Intelligence"],
+                key="novo_area_processo"
+            )
+            senioridade = st.selectbox(
+                "Senioridade*",
+                ["Estágio", "Júnior", "Pleno", "Sênior", "Especialista"],
+                key="novo_senioridade"
+            )
+        
+        with col2:
+            status = st.selectbox(
+                "Status*",
+                ["Aberto", "Fechado"],
+                key="novo_status"
+            )
+            local = st.selectbox(
+                "Local*",
+                ["BRASIL", "LATAM", "EUA", "Europa"],
+                key="novo_local_processo"
+            )
+            descricao = st.text_area("Descrição do Processo (opcional)", key="novo_descricao")
+        
+        if st.button("✅ Criar Processo", type="primary", use_container_width=True):
+            if not nome:
+                st.error("❌ Nome do processo é obrigatório")
+            else:
+                try:
+                    cursor.execute("""
+                        INSERT INTO processos (nome, area, senioridade, status, local, descricao)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                    """, (nome, area, senioridade, status, local, descricao))
+                    conn.commit()
+                    add_notification(f"✅ Processo '{nome}' criado com sucesso!", "success")
+                    
+                    # Reset inputs
+                    for key in ["novo_nome_processo", "novo_area_processo", "novo_senioridade", 
+                                "novo_status", "novo_local_processo", "novo_descricao"]:
+                        if key in st.session_state:
+                            del st.session_state[key]
+                    
                     st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Erro ao criar processo: {str(e)}")
+    
+    st.divider()
+    
+    # List Processes
+    st.markdown("### 📋 Processos Ativos")
+    
+    processos = get_processos_cached()
+    
+    if not processos:
+        st.info("✨ Nenhum processo encontrado. Crie um novo processo para começar!")
+    else:
+        # Search and filter
+        col_search, col_filter = st.columns([3, 1])
+        with col_search:
+            search_term = st.text_input("🔍 Buscar processo", placeholder="Digite o nome do processo...")
+        with col_filter:
+            status_filter = st.selectbox("Filtrar por status", ["Todos", "Aberto", "Fechado"])
+        
+        # Filter processes
+        filtered_processos = []
+        for proc in processos:
+            id_p, nome, area, senioridade, status_proc, local = proc
+            
+            if search_term and search_term.lower() not in nome.lower():
+                continue
+            if status_filter != "Todos" and status_proc != status_filter:
+                continue
+            
+            filtered_processos.append(proc)
+        
+        # Display processes in cards
+        for proc in filtered_processos:
+            id_p, nome, area, senioridade, status_proc, local = proc
+            
+            # Determine status badge
+            if status_proc == "Aberto":
+                status_badge = '<span class="badge badge-success">🟢 Aberto</span>'
+            else:
+                status_badge = '<span class="badge badge-danger">🔴 Fechado</span>'
+            
+            with st.container():
+                st.markdown(f"""
+                <div class="card">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h3 style="margin: 0;">{nome}</h3>
+                            <p style="margin: 5px 0 0 0; color: #9CA3AF;">
+                                {area} • {senioridade} • {local} {status_badge}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                col1, col2, col3 = st.columns([1, 1, 3])
+                with col1:
+                    if st.button("📂 Entrar", key=f"entrar_{id_p}", use_container_width=True):
+                        st.session_state.processo_id = id_p
+                        st.session_state.view = "processo"
+                        st.rerun()
+                with col2:
+                    if st.button("📊 Estatísticas", key=f"stats_{id_p}", use_container_width=True):
+                        # Show quick stats
+                        cursor.execute("""
+                            SELECT COUNT(DISTINCT c.id), COUNT(a.id)
+                            FROM processos_candidatos pc
+                            LEFT JOIN candidatos c ON pc.candidato_id = c.id
+                            LEFT JOIN avaliacoes a ON c.id = a.candidato_id AND a.processo_id = ?
+                            WHERE pc.processo_id = ?
+                        """, (id_p, id_p))
+                        total_cand, total_av = cursor.fetchone()
+                        st.info(f"👥 {total_cand or 0} candidatos • 📝 {total_av or 0} avaliações")
 
 # =====================================================
 # 📂 PROCESSO
 # =====================================================
 elif st.session_state.view == "processo":
-
+    
     processo_id = st.session_state.processo_id
-    result = get_processo_details(processo_id)
-    nome_processo, status_processo, area_processo = result
-
-    col_back, col_title, col_close = st.columns([1, 6, 2])
+    cursor.execute("SELECT nome, status FROM processos WHERE id = %s", (processo_id,))
+    result = cursor.fetchone()
     
-    with col_back:
-        if st.button("← Voltar"):
+    if not result:
+        st.error("Processo não encontrado")
+        if st.button("← Voltar para Home"):
             st.session_state.view = "home"
-            st.session_state.processo_id = None
             st.rerun()
-    
-    with col_title:
-        st.markdown(f"<h1>📂 {nome_processo}</h1>", unsafe_allow_html=True)
-        st.caption(f"Área: {area_processo}")
-    
-    with col_close:
-        if status_processo == "Aberto" and is_admin(st.session_state.user_email):
-            if st.button("🔒 Fechar Processo"):
-                conn = get_connection()
-                cursor = conn.cursor()
-                cursor.execute("UPDATE processos SET status = %s WHERE id = %s", ("Fechado", processo_id))
-                conn.commit()
-                cursor.close()
-                return_connection(conn)
-                clear_processo_cache()
-                st.success("Processo fechado!")
-                st.rerun()
-    
-    st.divider()
-
-    # Adicionar candidato (só se aberto e usuário pode editar)
-    if status_processo == "Aberto" and can_edit(st.session_state.user_email):
-        with st.expander("➕ Adicionar Candidato", expanded=False):
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                nome_c = st.text_input("Nome do Candidato", key="novo_nome_c")
-            with col2:
-                email_c = st.text_input("Email", key="novo_email_c")
-            
-            if st.button("✨ Adicionar Candidato", use_container_width=True):
-                conn = get_connection()
-                cursor = conn.cursor()
-                cursor.execute("SELECT id FROM candidatos WHERE email = %s", (email_c,))
-                existe = cursor.fetchone()
-                if not existe:
-                    cursor.execute("INSERT INTO candidatos (nome, email) VALUES (%s, %s) RETURNING id", (nome_c, email_c))
-                    candidato_id = cursor.fetchone()[0]
-                    conn.commit()
-                else:
-                    candidato_id = existe[0]
-
-                cursor.execute("""
-                    INSERT INTO processos_candidatos (processo_id, candidato_id)
-                    VALUES (%s, %s)
-                    ON CONFLICT (processo_id, candidato_id) DO NOTHING
-                """, (processo_id, candidato_id))
-                conn.commit()
-                cursor.close()
-                return_connection(conn)
-                clear_candidato_cache()
-                st.success("✅ Candidato registrado!")
-                st.rerun()
-
-    st.divider()
-
-    # Listar candidatos vinculados (usando cache)
-    candidatos = get_candidatos_by_processo(processo_id)
-
-    # Busca e filtros
-    col_search, col_filter = st.columns([2, 1])
-    
-    with col_search:
-        busca = st.text_input("🔎 Buscar candidato", placeholder="Nome ou email...")
-    
-    with col_filter:
-        filtro_status = st.selectbox(
-            "Filtrar por status:",
-            ["Todos", "Pendentes", "Avaliados"]
-        )
-
-    if busca:
-        candidatos = [
-            c for c in candidatos
-            if busca.lower() in c[1].lower() or busca.lower() in c[2].lower()
-        ]
-
-    if filtro_status == "Pendentes":
-        candidatos = [c for c in candidatos if c[3] == 0]
-    elif filtro_status == "Avaliados":
-        candidatos = [c for c in candidatos if c[3] > 0]
-
-    candidatos.sort(key=lambda x: x[3])
-
-    st.markdown(f"<h3>👥 Candidatos ({len(candidatos)})</h3>", unsafe_allow_html=True)
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    for id_c, nome, email, total_avaliacoes in candidatos:
-
-        avaliacao = get_avaliacao_by_candidato(processo_id, id_c)
-
-        if avaliacao:
-            nota_final = avaliacao[0]
-            avaliacao_id = avaliacao[1]
-
-            if nota_final >= 8:
-                status_class = "status-green"
-                status_text = f"✅ Nota Final: {nota_final}"
-            elif nota_final >= 6:
-                status_class = "status-yellow"
-                status_text = f"⚠️ Nota Final: {nota_final}"
-            else:
-                status_class = "status-red"
-                status_text = f"❌ Nota Final: {nota_final}"
-
-            status_html = f'<span class="{status_class}">{status_text}</span>'
-        else:
-            status_html = '<span class="status-gray">⏳ Pendente</span>'
-
-        st.markdown(f"""
-            <div class="card">
-                <h3>{nome}</h3>
-                <p style="color:#9CA3AF; margin:8px 0;">{email}</p>
-                <p style="margin-top:12px;">{status_html}</p>
-            </div>
-        """, unsafe_allow_html=True)
+    else:
+        nome_processo, status_processo = result
         
-        col1, col2 = st.columns([1, 1])
-
+        # Header with actions
+        col1, col2, col3 = st.columns([2, 1, 1])
         with col1:
-            if avaliacao:
-                if st.button("📊 Ver Detalhes", key=f"det_{id_c}", use_container_width=True):
-                    st.session_state.avaliacao_id = avaliacao_id
-                    st.session_state.view = "detalhe_avaliacao"
-                    st.rerun()
-
+            st.title(f"📂 {nome_processo}")
         with col2:
-            if not avaliacao and status_processo == "Aberto" and can_edit(st.session_state.user_email):
-                if st.button("📝 Avaliar", key=f"avaliar_{id_c}", use_container_width=True):
-                    st.session_state.candidato_id = id_c
-                    st.session_state.view = "avaliar"
+            if st.button("🏠 Home", use_container_width=True):
+                st.session_state.view = "home"
+                st.session_state.processo_id = None
+                st.rerun()
+        with col3:
+            if status_processo == "Aberto":
+                if confirm_action("🔒 Fechar Processo", key_prefix=f"fechar_{processo_id}"):
+                    cursor.execute("UPDATE processos SET status = %s WHERE id = %s", ("Fechado", processo_id))
+                    conn.commit()
+                    add_notification("✅ Processo fechado com sucesso!", "success")
                     st.rerun()
-                    
+        
+        st.markdown("---")
+        
+        # Export functionality
+        if st.button("📊 Exportar Dados", use_container_width=True):
+            cursor.execute("""
+                SELECT 
+                    p.nome as processo,
+                    c.nome as candidato,
+                    c.email,
+                    a.nota_final,
+                    a.avaliador,
+                    a.data,
+                    a.comentario_final
+                FROM avaliacoes a
+                JOIN processos p ON a.processo_id = p.id
+                JOIN candidatos c ON a.candidato_id = c.id
+                WHERE a.processo_id = %s
+                ORDER BY a.data DESC
+            """, (processo_id,))
+            
+            data = cursor.fetchall()
+            if data:
+                export_to_csv(data, f"avaliacoes_processo_{processo_id}.csv")
+            else:
+                st.info("Nenhuma avaliação para exportar")
+        
+        # Add Candidate (if open)
+        if status_processo == "Aberto":
+            with st.expander("➕ Adicionar Candidato", expanded=False):
+                col1, col2 = st.columns(2)
+                with col1:
+                    nome_c = st.text_input("Nome do Candidato*", key="novo_nome_c")
+                    email_c = st.text_input("Email*", key="novo_email_c")
+                with col2:
+                    telefone_c = st.text_input("Telefone", key="novo_telefone_c")
+                    linkedin_c = st.text_input("LinkedIn", key="novo_linkedin_c")
+                
+                if st.button("✅ Adicionar Candidato", type="primary", use_container_width=True):
+                    if not nome_c or not email_c:
+                        st.error("❌ Nome e email são obrigatórios")
+                    else:
+                        try:
+                            # Check if candidate exists
+                            cursor.execute("SELECT id FROM candidatos WHERE email = %s", (email_c,))
+                            existe = cursor.fetchone()
+                            
+                            if not existe:
+                                cursor.execute("""
+                                    INSERT INTO candidatos (nome, email, telefone, linkedin)
+                                    VALUES (%s, %s, %s, %s)
+                                """, (nome_c, email_c, telefone_c, linkedin_c))
+                                conn.commit()
+                                candidato_id = cursor.lastrowid
+                                add_notification(f"✅ Candidato {nome_c} cadastrado!", "success")
+                            else:
+                                candidato_id = existe[0]
+                                add_notification(f"ℹ️ Candidato {nome_c} já existente", "info")
+                            
+                            # Link to process
+                            cursor.execute("""
+                                INSERT OR IGNORE INTO processos_candidatos (processo_id, candidato_id)
+                                VALUES (%s, %s)
+                            """, (processo_id, candidato_id))
+                            conn.commit()
+                            
+                            # Reset inputs
+                            for key in ["novo_nome_c", "novo_email_c", "novo_telefone_c", "novo_linkedin_c"]:
+                                if key in st.session_state:
+                                    del st.session_state[key]
+                            
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Erro ao adicionar candidato: {str(e)}")
+        
+        st.divider()
+        
+        # List Candidates
+        st.markdown("### 👥 Candidatos")
+        
+        # Filters
+        col_filters = st.columns([2, 1, 1, 1])
+        with col_filters[0]:
+            busca = st.text_input("🔎 Buscar candidato", placeholder="Nome ou email...")
+        with col_filters[1]:
+            filtro_status = st.selectbox(
+                "Status",
+                ["Todos", "Pendentes", "Avaliados", "Aprovados", "Reprovados"]
+            )
+        with col_filters[2]:
+            nota_min = st.slider("Nota mínima", 0.0, 10.0, 0.0, step=0.5)
+        with col_filters[3]:
+            ordenar = st.selectbox("Ordenar por", ["Nome", "Nota (maior)", "Nota (menor)", "Data"])
+        
+        # Get candidates
+        candidatos = get_candidatos_processo_cached(processo_id)
+        
+        # Apply filters
+        filtered_candidatos = []
+        for cand in candidatos:
+            id_c, nome, email, total_avaliacoes, ultima_nota = cand
+            
+            # Search filter
+            if busca and busca.lower() not in nome.lower() and busca.lower() not in email.lower():
+                continue
+            
+            # Status filter
+            if filtro_status == "Pendentes" and total_avaliacoes > 0:
+                continue
+            elif filtro_status == "Avaliados" and total_avaliacoes == 0:
+                continue
+            elif filtro_status == "Aprovados" and (not ultima_nota or ultima_nota < 8):
+                continue
+            elif filtro_status == "Reprovados" and (not ultima_nota or ultima_nota >= 8):
+                continue
+            
+            # Score filter
+            if ultima_nota and ultima_nota < nota_min:
+                continue
+            
+            filtered_candidatos.append(cand)
+        
+        # Apply sorting
+        if ordenar == "Nome":
+            filtered_candidatos.sort(key=lambda x: x[1])
+        elif ordenar == "Nota (maior)":
+            filtered_candidatos.sort(key=lambda x: x[4] or -1, reverse=True)
+        elif ordenar == "Nota (menor)":
+            filtered_candidatos.sort(key=lambda x: x[4] or 999)
+        
+        # Display candidates
+        if not filtered_candidatos:
+            st.info("👀 Nenhum candidato encontrado com os filtros selecionados")
+        
+        for cand in filtered_candidatos:
+            id_c, nome, email, total_avaliacoes, ultima_nota = cand
+            
+            # Get evaluation details
+            cursor.execute("""
+                SELECT nota_final, id, avaliador, data
+                FROM avaliacoes 
+                WHERE processo_id = %s AND candidato_id = %s 
+                ORDER BY data DESC 
+                LIMIT 1
+            """, (processo_id, id_c))
+            avaliacao = cursor.fetchone()
+            
+            if avaliacao:
+                nota_final = avaliacao[0]
+                avaliacao_id = avaliacao[1]
+                avaliador = avaliacao[2]
+                data_avaliacao = avaliacao[3]
+                
+                if nota_final >= 8:
+                    status_class = "status-green"
+                    status_text = "✅ Aprovado"
+                    badge_class = "badge-success"
+                elif nota_final >= 6:
+                    status_class = "status-yellow"
+                    status_text = "⚠️ Em análise"
+                    badge_class = "badge-warning"
+                else:
+                    status_class = "status-red"
+                    status_text = "❌ Reprovado"
+                    badge_class = "badge-danger"
+                
+                status_html = f'<span class="badge {badge_class}">{status_text}</span>'
+                nota_html = f'<span class="{status_class}">⭐ {nota_final:.1f}</span>'
+            else:
+                status_html = '<span class="badge badge-info">⏳ Pendente</span>'
+                nota_html = '<span class="status-gray">—</span>'
+                avaliacao_id = None
+            
+            # Display candidate card
+            with st.container():
+                st.markdown(f"""
+                <div class="card">
+                    <div style="display: flex; justify-content: space-between; align-items: start;">
+                        <div>
+                            <h3 style="margin: 0;">{nome} {status_html}</h3>
+                            <p style="margin: 5px 0; color: #9CA3AF;">📧 {email}</p>
+                            <p style="margin: 5px 0; font-size: 14px;">
+                                {nota_html}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+                """, unsafe_allow_html=True)
+                
+                col_actions = st.columns([1, 1, 2])
+                with col_actions[0]:
+                    if avaliacao_id:
+                        if st.button("🔍 Ver Detalhes", key=f"det_{id_c}", use_container_width=True):
+                            st.session_state.avaliacao_id = avaliacao_id
+                            st.session_state.view = "detalhe_avaliacao"
+                            st.rerun()
+                
+                with col_actions[1]:
+                    if not avaliacao_id and status_processo == "Aberto":
+                        if st.button("📝 Avaliar", key=f"avaliar_{id_c}", type="primary", use_container_width=True):
+                            st.session_state.candidato_id = id_c
+                            st.session_state.view = "avaliar"
+                            st.rerun()
+                
+                with col_actions[2]:
+                    if avaliacao_id and status_processo == "Aberto":
+                        if st.button("🔄 Reavaliar", key=f"reavaliar_{id_c}", use_container_width=True):
+                            st.session_state.candidato_id = id_c
+                            st.session_state.view = "avaliar"
+                            st.rerun()
+
 # =====================================================
 # 📝 AVALIAR
 # =====================================================
 elif st.session_state.view == "avaliar":
     
-    # Verificar se usuário pode editar
-    if not can_edit(st.session_state.user_email):
-        st.error("❌ Você não tem permissão para avaliar candidatos. Apenas usuários com role 'user' ou 'admin' podem avaliar.")
-        if st.button("← Voltar ao Processo"):
-            st.session_state.view = "processo"
-            st.rerun()
-        st.stop()
-
     candidato_id = st.session_state.candidato_id
     processo_id = st.session_state.processo_id
-
-    if st.button("← Voltar ao Processo"):
-        st.session_state.view = "processo"
-        st.rerun()
-
-    conn = get_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT nome FROM candidatos WHERE id = %s", (candidato_id,))
-    nome_candidato = cursor.fetchone()[0]
     
-    cursor.execute("SELECT area FROM processos WHERE id = %s", (processo_id,))
-    area_processo = cursor.fetchone()[0]
-    cursor.close()
-    return_connection(conn)
+    # Navigation
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("← Voltar", use_container_width=True):
+            st.session_state.view = "processo"
+            st.session_state.candidato_id = None
+            st.rerun()
+    with col2:
+        if st.session_state.auto_save_enabled:
+            st.caption("💾 Auto-save ativado")
     
-    st.markdown(f"<h1>📝 Avaliação - {nome_candidato}</h1>", unsafe_allow_html=True)
-    st.caption(f"Área: {area_processo}")
-
-    # Obter critérios baseados na área
-    estrutura = get_criterios_por_area(area_processo)
-
+    # Get candidate info
+    cursor.execute("SELECT nome, email FROM candidatos WHERE id = %s", (candidato_id,))
+    nome_candidato, email_candidato = cursor.fetchone()
+    
+    cursor.execute("SELECT nome FROM processos WHERE id = %s", (processo_id,))
+    nome_processo = cursor.fetchone()[0]
+    
+    st.title(f"📝 Avaliar: {nome_candidato}")
+    st.caption(f"📧 {email_candidato} | 📂 {nome_processo}")
+    
+    # Load draft if exists
+    if st.button("📂 Carregar Rascunho", use_container_width=True):
+        if load_draft():
+            add_notification("✅ Rascunho carregado!", "success")
+            st.rerun()
+    
+    st.divider()
+    
+    # ==============================
+    # Evaluation Structure
+    # ==============================
+    estrutura = {
+        "Tratamentos": [
+            {"criterio": "Arquitetura em Camadas (Raw / Staging / Golden)", "peso": 1, "obrigatorio": False, "descricao": "Avalie a organização em camadas de dados"},
+            {"criterio": "Criação de Dimensões", "peso": 2, "obrigatorio": True, "descricao": "Verifique a criação e gerenciamento de dimensões"},
+            {"criterio": "Tratamento de Tipagem e Strings", "peso": 2, "obrigatorio": True, "descricao": "Avalie o tratamento de tipos de dados e strings"},
+            {"criterio": "Deduplicação", "peso": 2, "obrigatorio": True, "descricao": "Verifique estratégias de deduplicação"},
+            {"criterio": "Modelagem de Dados (Star / Snowflake)", "peso": 3, "obrigatorio": True, "descricao": "Avalie a modelagem dimensional"},
+        ],
+        "Análises": [
+            {"criterio": "Escolha das Métricas Estratégicas", "peso": 3, "obrigatorio": True, "descricao": "Avalie a relevância das métricas escolhidas"},
+            {"criterio": "Cálculo Correto das Métricas", "peso": 3, "obrigatorio": True, "descricao": "Verifique a precisão dos cálculos"},
+            {"criterio": "Storytelling", "peso": 2, "obrigatorio": True, "descricao": "Avalie a capacidade de contar história com dados"},
+        ],
+        "Visual": [
+            {"criterio": "Organização dos Visuais", "peso": 2, "obrigatorio": True, "descricao": "Avalie a disposição e clareza dos visuais"},
+            {"criterio": "Paleta de Cores e Tipografia", "peso": 1, "obrigatorio": True, "descricao": "Verifique a escolha de cores e fontes"},
+        ]
+    }
+    
     soma_ponderada = 0
     soma_pesos = 0
     reprovado_por_obrigatorio = False
-
-    # Sliders
+    criterios_avaliados = 0
+    total_criterios = sum(len(criterios) for criterios in estrutura.values())
+    
+    # ==============================
+    # Evaluation Criteria
+    # ==============================
     for bloco, criterios in estrutura.items():
         st.divider()
-        st.markdown(f"<h2>{bloco}</h2>", unsafe_allow_html=True)
-
+        st.header(bloco)
+        
         for item in criterios:
             criterio = item["criterio"]
-            descricao = item.get("descricao", "")
             peso = item["peso"]
             obrigatorio = item["obrigatorio"]
-
+            descricao = item.get("descricao", "")
+            
             key_nota = f"{bloco}_{criterio}"
             key_just = f"just_{bloco}_{criterio}"
-
+            
+            # Initialize session state
             if key_nota not in st.session_state:
                 st.session_state[key_nota] = 5.0
             if key_just not in st.session_state:
                 st.session_state[key_just] = ""
-
-            obrigatorio_badge = "🔴 OBRIGATÓRIO" if obrigatorio else "⚪ Opcional"
             
-            st.markdown(f"""
-                <div style="background:rgba(255,255,255,0.05); padding:20px; border-radius:16px; margin-bottom:20px; border-left:4px solid {'#ef4444' if obrigatorio else '#6b7280'};">
-                    <p style="font-size:18px; font-weight:700; margin-bottom:8px;">{criterio}</p>
-                    <p style="font-size:14px; color:#D1D5DB; margin-bottom:8px;">{descricao}</p>
-                    <p style="font-size:13px; color:#9CA3AF;">
-                        <strong>Peso:</strong> {peso} | {obrigatorio_badge}
-                    </p>
-                </div>
-            """, unsafe_allow_html=True)
-
-            nota = st.slider(
-                "Nota (0-10)",
-                0.0,
-                10.0,
-                st.session_state[key_nota],
-                step=0.5,
-                key=key_nota
-            )
-
-            justificativa = st.text_area(
-                "Justificativa",
-                st.session_state[key_just],
-                key=key_just,
-                height=100
-            )
-
-            soma_ponderada += nota * peso
-            soma_pesos += peso
-
-
-    # Resultado
-    nota_final = round(soma_ponderada / soma_pesos, 2)
-
+            with st.container():
+                st.markdown(f"**{criterio}**")
+                if descricao:
+                    st.caption(f"ℹ️ {descricao}")
+                
+                col_nota, col_just = st.columns([1, 2])
+                with col_nota:
+                    nota = st.slider(
+                        f"Nota (Peso: {peso}){' 🔴 Obrigatório' if obrigatorio else ''}",
+                        0.0,
+                        10.0,
+                        st.session_state[key_nota],
+                        step=0.5,
+                        key=key_nota
+                    )
+                    
+                    if nota > 0:
+                        criterios_avaliados += 1
+                    
+                    # Progress indicator for this criterion
+                    if nota >= 8:
+                        st.markdown("✅ Excelente")
+                    elif nota >= 6:
+                        st.markdown("⚠️ Bom")
+                    else:
+                        st.markdown("❌ Precisa melhorar")
+                
+                with col_just:
+                    justificativa = st.text_area(
+                        "Justificativa",
+                        st.session_state[key_just],
+                        key=key_just,
+                        placeholder="Explique sua avaliação..."
+                    )
+                
+                soma_ponderada += nota * peso
+                soma_pesos += peso
+                
+                if obrigatorio and nota < 6:
+                    reprovado_por_obrigatorio = True
+    
+    # ==============================
+    # Progress Bar
+    # ==============================
+    show_progress_bar(criterios_avaliados, total_criterios, "Critérios avaliados:")
+    
+    # ==============================
+    # Result Calculation
+    # ==============================
+    if soma_pesos > 0:
+        nota_final = round(soma_ponderada / soma_pesos, 2)
+    else:
+        nota_final = 0
+    
     st.divider()
-    st.markdown("<h2>🎯 Resultado Final</h2>", unsafe_allow_html=True)
-
-    col_metric1, col_metric2, col_metric3 = st.columns(3)
+    st.subheader("🎯 Resultado Final")
     
-    with col_metric1:
-        st.metric("Nota Final (Ponderada)", nota_final)
-    
-    with col_metric2:
-        if nota_final >= 8:
-            st.success("✅ Recomendado")
-        elif nota_final >= 6:
-            st.warning("⚠️ Avaliar melhor")
-        else:
-            st.error("❌ Não recomendado")
-
-
-    st.divider()
-
-    # Campos finais
-    col1, col2 = st.columns(2)
-    
+    # Display metrics
+    col1, col2, col3 = st.columns(3)
     with col1:
-        avaliador = st.text_input("Nome do Avaliador", value=st.session_state.user_email)
-    
+        st.metric("Nota Final (Ponderada)", f"{nota_final:.1f}")
     with col2:
-        st.markdown("<br>", unsafe_allow_html=True)
+        st.metric("Total de Peso", soma_pesos)
+    with col3:
+        st.metric("Critérios Avaliados", f"{criterios_avaliados}/{total_criterios}")
     
-    comentario_final = st.text_area("Comentário Final Geral (Obrigatório) *", height=150,
-                                     help="A justificativa geral é obrigatória para salvar a avaliação")
-
-    # Salvar
-    if st.button("💾 Salvar Avaliação", use_container_width=True):
-        
-        # Validar se o comentário final foi preenchido
-        if not comentario_final or comentario_final.strip() == "":
-            st.error("❌ A justificativa geral é obrigatória! Por favor, preencha o comentário final antes de salvar.")
-            st.stop()
-
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-        INSERT INTO avaliacoes
-        (processo_id, candidato_id, nota_final, avaliador, comentario_final)
-        VALUES (%s, %s, %s, %s, %s)
-        RETURNING id
-        """, (processo_id, candidato_id, nota_final, avaliador, comentario_final))
-
-        avaliacao_id = cursor.fetchone()[0]
-
-        for bloco, criterios in estrutura.items():
-            for item in criterios:
-                criterio = item["criterio"]
-                nota = st.session_state[f"{bloco}_{criterio}"]
-                justificativa = st.session_state[f"just_{bloco}_{criterio}"]
-
-                cursor.execute("""
-                    INSERT INTO avaliacoes_criterios
-                    (avaliacao_id, bloco, criterio, nota, justificativa)
-                    VALUES (%s, %s, %s, %s, %s)
-                """, (avaliacao_id, bloco, criterio, nota, justificativa))
-
-        conn.commit()
-        cursor.close()
-        return_connection(conn)
-        clear_avaliacao_cache()
-
-        st.success("✅ Avaliação salva com sucesso!")
+    # Recommendations
+    if reprovado_por_obrigatorio:
+        st.error("❌ Reprovado por critério obrigatório abaixo de 6")
+    elif nota_final >= 8:
+        st.success("✅ Recomendado para contratação")
         st.balloons()
-        st.session_state.view = "processo"
-        st.rerun()
+    elif nota_final >= 6:
+        st.warning("⚠️ Avaliar melhor - Pontos de melhoria identificados")
+    else:
+        st.error("❌ Não recomendado - Necessita desenvolvimento")
+    
+    # ==============================
+    # Final Fields
+    # ==============================
+    st.divider()
+    st.subheader("📝 Considerações Finais")
+    
+    col_final1, col_final2 = st.columns(2)
+    with col_final1:
+        avaliador = st.text_input("Nome do Avaliador*", placeholder="Seu nome completo")
+    with col_final2:
+        data_avaliacao = st.date_input("Data da Avaliação", datetime.now())
+    
+    comentario_final = st.text_area(
+        "Comentário Final Geral*",
+        placeholder="Resumo da avaliação, pontos fortes, áreas de melhoria..."
+    )
+    
+    # ==============================
+    # Action Buttons
+    # ==============================
+    col_actions = st.columns([1, 1, 1, 2])
+    
+    with col_actions[0]:
+        if st.button("💾 Salvar Rascunho", use_container_width=True):
+            save_draft(estrutura, processo_id, candidato_id)
+            add_notification("✅ Rascunho salvo!", "success")
+            st.rerun()
+    
+    with col_actions[1]:
+        if st.button("🔄 Resetar", use_container_width=True):
+            for bloco, criterios in estrutura.items():
+                for item in criterios:
+                    criterio = item["criterio"]
+                    key_nota = f"{bloco}_{criterio}"
+                    key_just = f"just_{bloco}_{criterio}"
+                    st.session_state[key_nota] = 5.0
+                    st.session_state[key_just] = ""
+            add_notification("🔄 Formulário resetado", "info")
+            st.rerun()
+    
+    with col_actions[2]:
+        if st.button("📊 Visualizar PDF", use_container_width=True):
+            st.info("Funcionalidade em desenvolvimento")
+    
+    with col_actions[3]:
+        if st.button("✅ Salvar Avaliação Final", type="primary", use_container_width=True):
+            # Validate
+            errors = []
+            if not avaliador:
+                errors.append("Nome do avaliador é obrigatório")
+            if not comentario_final:
+                errors.append("Comentário final é obrigatório")
+            
+            # Check mandatory criteria
+            for bloco, criterios in estrutura.items():
+                for item in criterios:
+                    if item["obrigatorio"]:
+                        nota = st.session_state.get(f"{bloco}_{item['criterio']}", 0)
+                        if nota < 6:
+                            errors.append(f"{item['criterio']} está abaixo do mínimo (6.0)")
+            
+            if errors:
+                for error in errors:
+                    st.error(f"❌ {error}")
+            else:
+                try:
+                    # Save evaluation
+                    cursor.execute("""
+                        INSERT INTO avaliacoes
+                        (processo_id, candidato_id, nota_final, avaliador, comentario_final, data)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                    """, (processo_id, candidato_id, nota_final, avaliador, comentario_final, data_avaliacao))
+                    
+                    conn.commit()
+                    avaliacao_id = cursor.lastrowid
+                    
+                    # Save criteria details
+                    for bloco, criterios in estrutura.items():
+                        for item in criterios:
+                            criterio = item["criterio"]
+                            nota = st.session_state[f"{bloco}_{criterio}"]
+                            justificativa = st.session_state[f"just_{bloco}_{criterio}"]
+                            
+                            cursor.execute("""
+                                INSERT INTO avaliacoes_criterios
+                                (avaliacao_id, bloco, criterio, nota, justificativa)
+                                VALUES (%s, %s, %s, %s, %s)
+                            """, (avaliacao_id, bloco, criterio, nota, justificativa))
+                    
+                    conn.commit()
+                    
+                    add_notification(f"✅ Avaliação salva com sucesso! Nota final: {nota_final:.1f}", "success")
+                    
+                    # Clear draft
+                    st.session_state.draft_data = {}
+                    
+                    # Return to processo view
+                    st.session_state.view = "processo"
+                    st.session_state.candidato_id = None
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Erro ao salvar avaliação: {str(e)}")
+    
+    # Auto-save logic
+    if st.session_state.auto_save_enabled:
+        current_time = time.time()
+        if current_time - st.session_state.last_save_time > 30:
+            save_draft(estrutura, processo_id, candidato_id)
+            st.session_state.last_save_time = current_time
+            st.toast("💾 Rascunho salvo automaticamente", icon="💾")
 
 # =====================================================
 # 🔎 DETALHE DA AVALIAÇÃO
 # =====================================================
 elif st.session_state.view == "detalhe_avaliacao":
-
+    
     avaliacao_id = st.session_state.avaliacao_id
-
-    if st.button("← Voltar ao Processo"):
+    
+    # Navigation
+    if st.button("← Voltar ao Processo", use_container_width=True):
         st.session_state.view = "processo"
         st.rerun()
-
-    avaliacao = get_avaliacao_details(avaliacao_id)
-
-    if avaliacao:
-        nota_final, avaliador, comentario_final = avaliacao
-
-        st.markdown("<h1>📊 Detalhe da Avaliação</h1>", unsafe_allow_html=True)
+    
+    # Get evaluation details
+    cursor.execute("""
+        SELECT 
+            a.nota_final, 
+            a.avaliador, 
+            a.comentario_final,
+            a.data,
+            c.nome as candidato_nome,
+            c.email,
+            p.nome as processo_nome
+        FROM avaliacoes a
+        JOIN candidatos c ON a.candidato_id = c.id
+        JOIN processos p ON a.processo_id = p.id
+        WHERE a.id = %s
+    """, (avaliacao_id,))
+    
+    avaliacao = cursor.fetchone()
+    
+    if not avaliacao:
+        st.error("Avaliação não encontrada")
+    else:
+        nota_final, avaliador, comentario_final, data_avaliacao, candidato_nome, candidato_email, processo_nome = avaliacao
         
-        # Buscar critérios para calcular médias por categoria
-        criterios = get_avaliacao_criterios(avaliacao_id)
+        # Header
+        st.title(f"🔍 Detalhe da Avaliação")
         
-        # Calcular médias por categoria/bloco
-        categorias_notas = {}
-        for bloco, criterio, nota, justificativa in criterios:
-            if bloco not in categorias_notas:
-                categorias_notas[bloco] = []
-            categorias_notas[bloco].append(float(nota))
-        
-        # Calcular médias
-        categorias_medias = {}
-        for bloco, notas in categorias_notas.items():
-            categorias_medias[bloco] = round(sum(notas) / len(notas), 1)
-        
-        # Exibir resumo de notas no topo
-        st.markdown("""
-        <div style="
-            background: linear-gradient(135deg, rgba(59,130,246,0.15), rgba(147,51,234,0.15));
-            backdrop-filter: blur(20px);
-            padding: 32px;
-            border-radius: 24px;
-            border: 1px solid rgba(255,255,255,0.2);
-            box-shadow: 0px 16px 48px rgba(0,0,0,0.4);
-            margin-bottom: 32px;
-        ">
-            <h2 style="text-align:center; margin-bottom:24px; color:#60A5FA;">🎯 Resumo das Avaliações</h2>
-        """, unsafe_allow_html=True)
-        
-        # Nota Final em destaque
-        st.markdown(f"""
-        <div style="text-align:center; margin-bottom:24px;">
-            <p style="font-size:16px; color:rgba(255,255,255,0.7); margin-bottom:8px;">NOTA FINAL</p>
-            <p style="font-size:64px; font-weight:800; margin:0;
-                background: linear-gradient(135deg, #60A5FA, #A78BFA);
-                -webkit-background-clip: text;
-                -webkit-text-fill-color: transparent;">
-                {nota_final}
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-        
-        # Notas por categoria
-        st.markdown("<div style='display:flex; justify-content:space-around; flex-wrap:wrap; gap:16px;'>", unsafe_allow_html=True)
-        
-        # Mapeamento de nomes de blocos para nomes de exibição
-        bloco_display_names = {
-            "Tratamentos": "Tratamento de Dados",
-            "Análises": "Análises",
-            "Visual": "Visualização de Dados"
-        }
-        
-        # Cores para cada categoria
-        bloco_colors = {
-            "Tratamentos": "#60A5FA",
-            "Análises": "#A78BFA",
-            "Visual": "#F472B6"
-        }
-        
-        for bloco, media in categorias_medias.items():
-            display_name = bloco_display_names.get(bloco, bloco)
-            color = bloco_colors.get(bloco, "#9CA3AF")
-            
+        # Candidate info
+        with st.container():
             st.markdown(f"""
-            <div style="
-                flex: 1;
-                min-width: 200px;
-                background: rgba(255,255,255,0.05);
-                padding: 20px;
-                border-radius: 16px;
-                text-align: center;
-                border: 2px solid {color}40;
-            ">
-                <p style="font-size:14px; color:rgba(255,255,255,0.7); margin-bottom:8px; font-weight:600;">
-                    {display_name}
-                </p>
-                <p style="font-size:36px; font-weight:800; margin:0; color:{color};">
-                    {media}
-                </p>
+            <div class="card">
+                <h3>📋 Informações do Candidato</h3>
+                <p><strong>Nome:</strong> {candidato_nome}</p>
+                <p><strong>Email:</strong> {candidato_email}</p>
+                <p><strong>Processo:</strong> {processo_nome}</p>
+                <p><strong>Data:</strong> {data_avaliacao.strftime('%d/%m/%Y %H:%M') if data_avaliacao else '—'}</p>
             </div>
             """, unsafe_allow_html=True)
         
-        st.markdown("</div></div>", unsafe_allow_html=True)
-        
-        st.divider()
-        
-        # Informações do avaliador e status
-        col1, col2 = st.columns(2)
-        
+        # Score metrics
+        col1, col2, col3 = st.columns(3)
         with col1:
-            st.markdown(f"**👤 Avaliador:** {avaliador}")
-        
-        with col2:
             if nota_final >= 8:
-                st.success("✅ Recomendado")
+                st.metric("Nota Final", f"{nota_final:.1f}", delta="Aprovado", delta_color="normal")
             elif nota_final >= 6:
-                st.warning("⚠️ Avaliar melhor")
+                st.metric("Nota Final", f"{nota_final:.1f}", delta="Em análise", delta_color="off")
             else:
-                st.error("❌ Não recomendado")
-        
-        st.divider()
-        
-        st.markdown("### 💬 Comentário Geral")
-        st.markdown(f"""
-        <div style="background:rgba(255,255,255,0.05); padding:20px; border-radius:16px; border-left:4px solid #3B82F6;">
-            {comentario_final if comentario_final else "Sem comentário"}
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.divider()
-
-        # Exibir critérios detalhados por categoria
-        st.markdown("<h2>📋 Detalhamento por Critério</h2>", unsafe_allow_html=True)
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        bloco_atual = None
-        for bloco, criterio, nota, justificativa in criterios:
-            if bloco != bloco_atual:
-                st.markdown(f"<h3>{bloco}</h3>", unsafe_allow_html=True)
-                bloco_atual = bloco
-            
-            st.markdown(f"""
-            <div style="background:rgba(255,255,255,0.05); padding:16px; border-radius:12px; margin-bottom:16px;">
-                <p style="font-size:16px; font-weight:600; margin-bottom:8px;">{criterio}</p>
-                <p style="color:#10b981; font-size:18px; font-weight:700; margin-bottom:8px;">Nota: {nota}</p>
-                <p style="color:#D1D5DB; font-size:14px;"><strong>Justificativa:</strong> {justificativa if justificativa else "Sem justificativa"}</p>
-            </div>
-            """, unsafe_allow_html=True)
-
-# =====================================================
-# 📊 ESTATÍSTICAS
-# =====================================================
-elif st.session_state.view == "statistics":
-    
-    st.markdown("""
-    <h1 style="
-        text-align:center;
-        font-size:48px;
-        font-weight:700;
-        letter-spacing:-1.5px;
-        background: linear-gradient(90deg, #60A5FA, #A78BFA, #F472B6);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom:40px;
-    ">
-        📊 ESTATÍSTICAS DO SISTEMA
-    </h1>
-    """, unsafe_allow_html=True)
-    
-    # Estatísticas gerais (usando cache)
-    stats = get_statistics()
-    total_processos = stats['total_processos']
-    processos_abertos = stats['processos_abertos']
-    total_candidatos = stats['total_candidatos']
-    total_avaliacoes = stats['total_avaliacoes']
-    candidatos_pendentes = stats['candidatos_pendentes']
-    media_geral = stats['media_geral']
-    
-    # Cards de estatísticas
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        st.markdown(f"""
-        <div class="card">
-            <h2 style="color:#60A5FA; margin-bottom:16px;">📋 Processos</h2>
-            <p style="font-size:48px; font-weight:800; margin:20px 0;">{total_processos}</p>
-            <p style="color:#9CA3AF;">Total de processos</p>
-            <p style="color:#10b981; font-weight:600; margin-top:12px;">🟢 {processos_abertos} abertos</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown(f"""
-        <div class="card">
-            <h2 style="color:#A78BFA; margin-bottom:16px;">👥 Candidatos</h2>
-            <p style="font-size:48px; font-weight:800; margin:20px 0;">{total_candidatos}</p>
-            <p style="color:#9CA3AF;">Total de candidatos</p>
-            <p style="color:#f59e0b; font-weight:600; margin-top:12px;">⏳ {candidatos_pendentes} pendentes</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col3:
-        st.markdown(f"""
-        <div class="card">
-            <h2 style="color:#F472B6; margin-bottom:16px;">✅ Avaliações</h2>
-            <p style="font-size:48px; font-weight:800; margin:20px 0;">{total_avaliacoes}</p>
-            <p style="color:#9CA3AF;">Total de avaliações</p>
-            <p style="color:#10b981; font-weight:600; margin-top:12px;">📈 Média: {media_geral}</p>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    st.divider()
-    
-    # Estatísticas por processo (usando cache)
-    st.markdown("<h2>📊 Estatísticas por Processo</h2>", unsafe_allow_html=True)
-    
-    processos_stats = get_processos_stats()
-    
-    if processos_stats:
-        for nome, area, status, total_cand, total_aval, media in processos_stats:
-            media_formatted = round(float(media), 2) if media else 0
-            pendentes = total_cand - total_aval
-            
-            status_badge = "🟢" if status == "Aberto" else "🔴"
-            
-            st.markdown(f"""
-            <div class="card">
-                <h3>{status_badge} {nome}</h3>
-                <p style="color:#9CA3AF; margin:8px 0;">Área: {area}</p>
-                <div style="display:flex; gap:24px; margin-top:16px;">
-                    <div>
-                        <p style="font-size:24px; font-weight:700; color:#60A5FA;">{total_cand}</p>
-                        <p style="color:#9CA3AF; font-size:13px;">Candidatos</p>
-                    </div>
-                    <div>
-                        <p style="font-size:24px; font-weight:700; color:#10b981;">{total_aval}</p>
-                        <p style="color:#9CA3AF; font-size:13px;">Avaliados</p>
-                    </div>
-                    <div>
-                        <p style="font-size:24px; font-weight:700; color:#f59e0b;">{pendentes}</p>
-                        <p style="color:#9CA3AF; font-size:13px;">Pendentes</p>
-                    </div>
-                    <div>
-                        <p style="font-size:24px; font-weight:700; color:#F472B6;">{media_formatted}</p>
-                        <p style="color:#9CA3AF; font-size:13px;">Média</p>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.info("📋 Nenhum processo cadastrado ainda.")
-    
-    st.divider()
-    
-    # Top candidatos (usando cache)
-    st.markdown("<h2>🏆 Top 10 Candidatos</h2>", unsafe_allow_html=True)
-    
-    top_candidatos = get_top_candidatos()
-    
-    if top_candidatos:
-        for idx, (nome, email, nota, num_aval) in enumerate(top_candidatos, 1):
-            medal = "🥇" if idx == 1 else "🥈" if idx == 2 else "🥉" if idx == 3 else f"{idx}º"
-            
-            if nota >= 8:
-                nota_color = "#10b981"
-            elif nota >= 6:
-                nota_color = "#f59e0b"
-            else:
-                nota_color = "#ef4444"
-            
-            st.markdown(f"""
-            <div style="
-                background:rgba(255,255,255,0.05);
-                padding:16px 24px;
-                border-radius:12px;
-                margin-bottom:12px;
-                display:flex;
-                justify-content:space-between;
-                align-items:center;
-            ">
-                <div>
-                    <p style="font-size:20px; font-weight:700; margin:0;">{medal} {nome}</p>
-                    <p style="color:#9CA3AF; font-size:14px; margin:4px 0 0 0;">{email}</p>
-                    <p style="color:#9CA3AF; font-size:14px; margin:4px 0 0 0;">{area}</p>
-                </div>
-                <div style="text-align:right;">
-                    <p style="font-size:32px; font-weight:800; color:{nota_color}; margin:0;">{nota}</p>
-                    <p style="color:#9CA3AF; font-size:12px; margin:4px 0 0 0;">{num_aval} avaliações</p>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-    else:
-        st.info("📋 Nenhuma avaliação realizada ainda.")
-
-# =====================================================
-# ⚙️ ADMIN - GERENCIAR EMAILS
-# =====================================================
-elif st.session_state.view == "admin":
-    
-    if not is_admin(st.session_state.user_email):
-        st.error("❌ Acesso negado. Apenas administradores podem acessar esta página.")
-        st.stop()
-    
-    st.markdown("""
-    <h1 style="
-        text-align:center;
-        font-size:48px;
-        font-weight:700;
-        letter-spacing:-1.5px;
-        background: linear-gradient(90deg, #60A5FA, #A78BFA, #F472B6);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        margin-bottom:40px;
-    ">
-        ⚙️ PAINEL DE ADMINISTRAÇÃO
-    </h1>
-    """, unsafe_allow_html=True)
-    
-    st.markdown("<h2>📧 Gerenciar Emails Autorizados</h2>", unsafe_allow_html=True)
-    
-    # Adicionar novo email
-    with st.expander("➕ Adicionar Novo Email", expanded=False):
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            new_email = st.text_input("Email", placeholder="usuario@exemplo.com", key="new_email_input")
-        
+                st.metric("Nota Final", f"{nota_final:.1f}", delta="Reprovado", delta_color="inverse")
         with col2:
-            new_role = st.selectbox("Role", ["user", "admin", "viewer"], key="new_email_role")
+            st.metric("Avaliador", avaliador)
+        with col3:
+            # Calculate percentile (mock)
+            cursor.execute("""
+                SELECT COUNT(*) FROM avaliacoes 
+                WHERE processo_id = (SELECT processo_id FROM avaliacoes WHERE id = %s)
+                AND nota_final > %s
+            """, (avaliacao_id, nota_final))
+            acima = cursor.fetchone()[0]
+            total = cursor.execute("""
+                SELECT COUNT(*) FROM avaliacoes 
+                WHERE processo_id = (SELECT processo_id FROM avaliacoes WHERE id = %s)
+            """, (avaliacao_id,)).fetchone()[0]
+            
+            if total > 0:
+                percentil = (acima / total) * 100
+                st.metric("Percentil", f"{percentil:.0f}%")
         
-        st.markdown("""
-        <div style="background:rgba(59,130,246,0.1); padding:12px; border-radius:12px; margin-bottom:12px;">
-            <p style="font-size:13px; color:rgba(255,255,255,0.8); margin:0;">
-                <strong>👑 Admin:</strong> Criar/fechar processos + gerenciar usuários + avaliar<br>
-                <strong>👤 User:</strong> Adicionar candidatos e avaliar (não cria processos)<br>
-                <strong>👁️ Viewer:</strong> Apenas visualização (read-only)
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+        # General comments
+        st.divider()
+        st.subheader("💬 Comentário Geral")
+        st.write(comentario_final)
         
-        if st.button("✨ Adicionar Email", use_container_width=True):
-            if new_email:
-                if add_allowed_email(new_email, new_role, st.session_state.user_email):
-                    st.success(f"✅ Email {new_email} adicionado como {new_role}!")
-                    st.rerun()
+        # Criteria details
+        st.divider()
+        st.subheader("📊 Avaliação por Critério")
+        
+        cursor.execute("""
+            SELECT bloco, criterio, nota, justificativa
+            FROM avaliacoes_criterios
+            WHERE avaliacao_id = %s
+            ORDER BY bloco, criterio
+        """, (avaliacao_id,))
+        
+        criterios = cursor.fetchall()
+        
+        current_bloco = None
+        for bloco, criterio, nota, justificativa in criterios:
+            if bloco != current_bloco:
+                current_bloco = bloco
+                st.markdown(f"### {bloco}")
+            
+            with st.expander(f"{criterio} - Nota: {nota:.1f}"):
+                st.write(f"**Nota:** {nota:.1f}")
+                if nota >= 8:
+                    st.success("✅ Critério atendido com excelência")
+                elif nota >= 6:
+                    st.warning("⚠️ Critério atendido parcialmente")
                 else:
-                    st.error("❌ Erro ao adicionar email.")
-            else:
-                st.warning("⚠️ Por favor, insira um email válido.")
-    
-    st.divider()
-    
-    # Listar emails autorizados
-    st.markdown("<h3>📋 Emails Autorizados</h3>", unsafe_allow_html=True)
-    
-    allowed_emails = get_all_allowed_emails()
-    
-    if allowed_emails:
-        for email, role, added_by, added_at in allowed_emails:
-            role_info = {
-                'admin': {'badge': '👑 ADMIN', 'color': '#F472B6'},
-                'user': {'badge': '👤 USER', 'color': '#60A5FA'},
-                'viewer': {'badge': '👁️ VIEWER', 'color': '#9ca3af'}
-            }
-            
-            info = role_info.get(role, role_info['user'])
-            role_badge = info['badge']
-            role_color = info['color']
-            
-            st.markdown(f"""
-            <div class="card">
-                <div style="display:flex; justify-content:space-between; align-items:center;">
-                    <div>
-                        <h3 style="margin:0;">{email}</h3>
-                        <p style="color:#9CA3AF; font-size:14px; margin:8px 0 0 0;">
-                            Adicionado por: {added_by if added_by else "Sistema"} | {added_at.strftime('%d/%m/%Y %H:%M') if added_at else "N/A"}
-                        </p>
-                    </div>
-                    <div style="text-align:right;">
-                        <span style="
-                            background:{role_color}20;
-                            color:{role_color};
-                            padding:8px 16px;
-                            border-radius:12px;
-                            font-weight:700;
-                            font-size:14px;
-                        ">{role_badge}</span>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            
-            col1, col2 = st.columns([5, 1])
-            
-            with col2:
-                if email != "admin@artefact.com":  # Proteger admin principal
-                    if st.button("🗑️ Remover", key=f"remove_{email}", use_container_width=True):
-                        if remove_allowed_email(email):
-                            st.success(f"✅ Email {email} removido!")
-                            st.rerun()
-                        else:
-                            st.error("❌ Erro ao remover email.")
-    else:
-        st.info("📋 Nenhum email cadastrado no sistema.")
-    
-    st.divider()
-    
-    # Informações do sistema
-    st.markdown("<h3>ℹ️ Informações do Sistema</h3>", unsafe_allow_html=True)
-    
-    st.markdown("""
-    <div style="
-        background:rgba(59,130,246,0.1);
-        padding:20px;
-        border-radius:16px;
-        border-left:4px solid #3B82F6;
-    ">
-        <p style="font-size:14px; color:rgba(255,255,255,0.9); margin:0;">
-            <strong>🔐 Política de Acesso:</strong><br><br>
-            • <strong>APENAS</strong> emails cadastrados nesta lista têm acesso ao sistema<br>
-            • Não há acesso automático por domínio - todos devem ser adicionados manualmente<br>
-            • Apenas administradores podem gerenciar a lista de emails autorizados<br>
-            • O email <strong>admin@artefact.com</strong> é protegido e não pode ser removido<br><br>
-            <strong>👥 Roles do Sistema:</strong><br><br>
-            • <strong>👑 Admin:</strong> Criar/fechar processos + gerenciar usuários + adicionar candidatos + avaliar<br>
-            • <strong>👤 User:</strong> Adicionar candidatos e avaliar em processos existentes (não cria processos)<br>
-            • <strong>👁️ Viewer:</strong> Apenas visualização (read-only), não pode editar nada
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+                    st.error("❌ Critério não atendido adequadamente")
+                
+                if justificativa:
+                    st.write("**Justificativa:**")
+                    st.write(justificativa)
+                else:
+                    st.caption("*Sem justificativa registrada*")
+        
+        # Export option
+        st.divider()
+        if st.button("📥 Exportar Avaliação", use_container_width=True):
+            export_data = [{
+                "Candidato": candidato_nome,
+                "Email": candidato_email,
+                "Processo": processo_nome,
+                "Nota Final": nota_final,
+                "Avaliador": avaliador,
+                "Data": data_avaliacao,
+                "Comentário": comentario_final
+            }]
+            export_to_csv(export_data, f"avaliacao_{avaliacao_id}.csv")
