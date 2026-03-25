@@ -32,7 +32,7 @@ def init_session_state():
         "processo_id": None,
         "candidato_id": None,
         "avaliacao_id": None,
-        "dark_mode": False,
+        "dark_mode": True,
         "auto_save_enabled": True,
         "last_save_time": 0,
         "draft_data": {},
