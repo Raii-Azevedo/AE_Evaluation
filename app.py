@@ -41,7 +41,8 @@ def init_session_state():
         "user_email": None,
         "user_name": None,
         "user_role": None,
-        "admin_view": "dashboard"
+        "admin_view": "dashboard",
+        "candidato_filter": "todos"  # NOVO: estado para o filtro de candidatos
     }
     
     for key, value in defaults.items():
@@ -377,6 +378,11 @@ def get_styles(dark_mode=False):
             border-radius: 20px;
             backdrop-filter: blur(10px);
         }
+        .filter-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
         </style>
         """
     else:
@@ -442,6 +448,11 @@ def get_styles(dark_mode=False):
             background: white;
             border-radius: 20px;
             box-shadow: 0px 10px 30px rgba(0,0,0,0.1);
+        }
+        .filter-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
         }
         </style>
         """
@@ -1107,13 +1118,73 @@ else:
                 
                 st.markdown("### 👥 Candidatos")
                 
+                # === NOVO: Filtros de candidatos ===
+                # Criar colunas para os botões de filtro
+                col_filter1, col_filter2, col_filter3 = st.columns(3)
+                
+                with col_filter1:
+                    if st.button("👥 Todos os Candidatos", key="filter_todos", use_container_width=True):
+                        st.session_state.candidato_filter = "todos"
+                        st.rerun()
+                
+                with col_filter2:
+                    if st.button("✅ Avaliados", key="filter_avaliados", use_container_width=True):
+                        st.session_state.candidato_filter = "avaliados"
+                        st.rerun()
+                
+                with col_filter3:
+                    if st.button("⏳ Pendentes", key="filter_pendentes", use_container_width=True):
+                        st.session_state.candidato_filter = "pendentes"
+                        st.rerun()
+                
+                # Mostrar qual filtro está ativo
+                if st.session_state.candidato_filter == "avaliados":
+                    st.info("📌 Exibindo apenas candidatos **avaliados**")
+                elif st.session_state.candidato_filter == "pendentes":
+                    st.info("📌 Exibindo apenas candidatos **pendentes**")
+                else:
+                    st.info("📌 Exibindo **todos** os candidatos")
+                
+                st.markdown("---")
+                # === FIM DOS NOVOS FILTROS ===
+                
                 candidatos = get_candidatos_processo(processo_id)
                 
+                # Contadores para o filtro
+                candidatos_avaliados = 0
+                candidatos_pendentes = 0
+                
+                # Primeiro, vamos processar a lista de candidatos para aplicar o filtro
+                candidatos_filtrados = []
                 for cand in candidatos:
                     id_c, nome, email, total_avaliacoes, ultima_nota = cand
-                    
-                    # Get latest evaluation
                     avaliacao = get_ultima_avaliacao(processo_id, id_c)
+                    
+                    if avaliacao:
+                        candidatos_avaliados += 1
+                    else:
+                        candidatos_pendentes += 1
+                    
+                    # Aplicar o filtro baseado na seleção do usuário
+                    if st.session_state.candidato_filter == "avaliados" and not avaliacao:
+                        continue  # Pula candidatos não avaliados
+                    elif st.session_state.candidato_filter == "pendentes" and avaliacao:
+                        continue  # Pula candidatos avaliados
+                    
+                    # Armazenar os dados do candidato junto com a avaliação para exibição posterior
+                    candidatos_filtrados.append((cand, avaliacao))
+                
+                # Mostrar quantos candidatos estão sendo exibidos
+                if st.session_state.candidato_filter == "avaliados":
+                    st.caption(f"Mostrando {len(candidatos_filtrados)} de {candidatos_avaliados} candidatos avaliados")
+                elif st.session_state.candidato_filter == "pendentes":
+                    st.caption(f"Mostrando {len(candidatos_filtrados)} de {candidatos_pendentes} candidatos pendentes")
+                else:
+                    st.caption(f"Mostrando todos os {len(candidatos_filtrados)} candidatos")
+                
+                # Loop para exibir os candidatos filtrados
+                for cand, avaliacao in candidatos_filtrados:
+                    id_c, nome, email, total_avaliacoes, ultima_nota = cand
                     
                     if avaliacao:
                         nota_final, avaliacao_id, avaliador = avaliacao
