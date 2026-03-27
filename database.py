@@ -408,7 +408,7 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
         
         conn.commit()
         
-        # Registrar importação
+        # Registrar importação - CORRIGIDO: usar os nomes corretos das colunas
         cursor.execute("""
             INSERT INTO importacoes_sheets 
             (total_linhas_processadas, novos_candidatos, novas_aplicacoes, 
@@ -441,7 +441,6 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
     finally:
         if conn:
             return_connection(conn)
-
 
 # ===== FUNÇÕES DE APLICAÇÕES =====
 
