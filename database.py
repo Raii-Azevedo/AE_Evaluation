@@ -51,6 +51,32 @@ def adicionar_coluna_se_nao_existe(cursor, tabela, coluna, tipo, valor_padrao=No
         return False
 
 
+def converter_data_para_postgres(data_str):
+    """Converte data do formato DD/MM/YYYY HH:MM:SS para YYYY-MM-DD HH:MM:SS"""
+    if not data_str:
+        return None
+    try:
+        # Se já for datetime, retorna
+        if isinstance(data_str, datetime):
+            return data_str
+        
+        # Se for string, tenta converter
+        if isinstance(data_str, str):
+            # Formato: "21/01/2026 20:08:01"
+            partes = data_str.split(' ')
+            data_parte = partes[0]  # "21/01/2026"
+            hora_parte = partes[1] if len(partes) > 1 else "00:00:00"
+            
+            dia, mes, ano = data_parte.split('/')
+            # Converter para formato PostgreSQL: YYYY-MM-DD HH:MM:SS
+            data_formatada = f"{ano}-{mes}-{dia} {hora_parte}"
+            return datetime.strptime(data_formatada, '%Y-%m-%d %H:%M:%S')
+    except Exception as e:
+        print(f"Erro ao converter data {data_str}: {e}")
+        return None
+    return None
+
+
 def init_db():
     """Initialize database tables with migrations"""
     conn = get_connection()
@@ -299,21 +325,17 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
             if not email:
                 continue
             
-            timestamp_aplicacao = candidato.get('timestamp')
+            timestamp_aplicacao_str = candidato.get('timestamp')
             priorizacao_sheets = candidato.get('priorizacao', '').strip()
             
-            # REGRA 1: Verificar se é de 2026
+            # REGRA 1: Converter e verificar se é de 2026
+            timestamp_aplicacao = None
             ano_aplicacao = None
-            if timestamp_aplicacao:
-                try:
-                    if isinstance(timestamp_aplicacao, str):
-                        partes = timestamp_aplicacao.split('/')
-                        if len(partes) >= 3:
-                            ano_aplicacao = int(partes[2].split(' ')[0])
-                    elif isinstance(timestamp_aplicacao, datetime):
-                        ano_aplicacao = timestamp_aplicacao.year
-                except:
-                    pass
+            
+            if timestamp_aplicacao_str:
+                timestamp_aplicacao = converter_data_para_postgres(timestamp_aplicacao_str)
+                if timestamp_aplicacao:
+                    ano_aplicacao = timestamp_aplicacao.year
             
             # Se não for 2026, ignora
             if ano_aplicacao != 2026:
@@ -365,7 +387,7 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
             aplicacao_existente = cursor.fetchone()
             
             if not aplicacao_existente:
-                # Nova aplicação para 2026
+                # Nova aplicação para 2026 - usar a data já convertida
                 cursor.execute("""
                     INSERT INTO aplicacoes 
                     (candidato_id, processo_id, greenhouse_id, pbix_file, optional_file, timestamp_aplicacao)
@@ -511,10 +533,10 @@ def get_stats_2026(processo_id):
                 COUNT(CASE WHEN av.id IS NULL THEN 1 END) as pendentes,
                 COUNT(CASE WHEN av.id IS NOT NULL THEN 1 END) as avaliados,
                 COALESCE(AVG(CASE WHEN av.id IS NOT NULL THEN av.nota_final END), 0) as media_avaliados,
-                SUM(CASE WHEN av.priorizacao = 'Prioridade 1' THEN 1 ELSE 0 END) as prioridade_1,
-                SUM(CASE WHEN av.priorizacao = 'Prioridade 2' THEN 1 ELSE 0 END) as prioridade_2,
-                SUM(CASE WHEN av.priorizacao = 'Prioridade 3' THEN 1 ELSE 0 END) as prioridade_3,
-                SUM(CASE WHEN av.gh_atualizada = true THEN 1 ELSE 0 END) as gh_atualizados
+                COUNT(CASE WHEN av.priorizacao = 'Prioridade 1' THEN 1 END) as prioridade_1,
+                COUNT(CASE WHEN av.priorizacao = 'Prioridade 2' THEN 1 END) as prioridade_2,
+                COUNT(CASE WHEN av.priorizacao = 'Prioridade 3' THEN 1 END) as prioridade_3,
+                COUNT(CASE WHEN av.gh_atualizada = true THEN 1 END) as gh_atualizados
             FROM aplicacoes a
             LEFT JOIN avaliacoes av ON a.id = av.aplicacao_id
             WHERE a.processo_id = %s 
@@ -523,7 +545,12 @@ def get_stats_2026(processo_id):
         
         result = cursor.fetchone()
         cursor.close()
-        return result
+        
+        # Garantir que todos os valores são números
+        if result:
+            return (result[0] or 0, result[1] or 0, result[2] or 0, 
+                    result[3] or 0, result[4] or 0, result[5] or 0, result[6] or 0)
+        return (0, 0, 0, 0, 0, 0, 0)
     except Exception as e:
         print(f"Erro ao buscar stats 2026: {e}")
         return (0, 0, 0, 0, 0, 0, 0)
