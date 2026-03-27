@@ -4,3 +4,7 @@ psycopg2-binary
 streamlit-authenticator
 bcrypt
 PyYAML
+gspread
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
