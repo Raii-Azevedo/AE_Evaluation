@@ -428,7 +428,7 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
 # ===== FUNÇÕES DE APLICAÇÕES =====
 
 def get_aplicacoes_pendentes_2026(processo_id):
-    """Busca aplicações pendentes de avaliação que são de 2026 e sem avaliação"""
+    """Busca aplicações pendentes de avaliação (sem filtro de ano)"""
     conn = None
     try:
         conn = get_connection()
@@ -450,7 +450,6 @@ def get_aplicacoes_pendentes_2026(processo_id):
             LEFT JOIN avaliacoes av ON a.id = av.aplicacao_id
             WHERE a.processo_id = %s 
                 AND av.id IS NULL
-                AND EXTRACT(YEAR FROM a.timestamp_aplicacao) = 2026
             ORDER BY a.timestamp_aplicacao DESC
         """, (processo_id,))
         
@@ -466,7 +465,7 @@ def get_aplicacoes_pendentes_2026(processo_id):
 
 
 def get_aplicacoes_avaliadas_2026(processo_id):
-    """Busca aplicações já avaliadas em 2026"""
+    """Busca aplicações já avaliadas (sem filtro de ano)"""
     conn = None
     try:
         conn = get_connection()
@@ -488,7 +487,6 @@ def get_aplicacoes_avaliadas_2026(processo_id):
             JOIN candidatos c ON a.candidato_id = c.id
             JOIN avaliacoes av ON a.id = av.aplicacao_id
             WHERE a.processo_id = %s 
-                AND EXTRACT(YEAR FROM a.timestamp_aplicacao) = 2026
             ORDER BY av.data_avaliacao DESC
         """, (processo_id,))
         
@@ -504,7 +502,7 @@ def get_aplicacoes_avaliadas_2026(processo_id):
 
 
 def get_stats_2026(processo_id):
-    """Estatísticas específicas para 2026"""
+    """Estatísticas do processo (sem filtro de ano)"""
     conn = None
     try:
         conn = get_connection()
@@ -522,19 +520,17 @@ def get_stats_2026(processo_id):
             FROM aplicacoes a
             LEFT JOIN avaliacoes av ON a.id = av.aplicacao_id
             WHERE a.processo_id = %s 
-                AND EXTRACT(YEAR FROM a.timestamp_aplicacao) = 2026
         """, (processo_id,))
         
         result = cursor.fetchone()
         cursor.close()
         
-        # Garantir que todos os valores são números
         if result:
             return (result[0] or 0, result[1] or 0, result[2] or 0, 
                     result[3] or 0, result[4] or 0, result[5] or 0, result[6] or 0)
         return (0, 0, 0, 0, 0, 0, 0)
     except Exception as e:
-        print(f"Erro ao buscar stats 2026: {e}")
+        print(f"Erro ao buscar stats: {e}")
         return (0, 0, 0, 0, 0, 0, 0)
     finally:
         if conn:
