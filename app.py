@@ -383,6 +383,28 @@ def admin_manage_emails():
 
 def admin_dashboard():
     st.title("📊 Dashboard Administrativo")
+   #DEUBG
+   # Na seção de debug, adicione:
+    if st.button("🔍 Ver estrutura da tabela importacoes_sheets"):
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT column_name, data_type 
+                FROM information_schema.columns 
+                WHERE table_name = 'importacoes_sheets'
+                ORDER BY ordinal_position
+            """)
+            colunas = cursor.fetchall()
+            st.write("**Colunas na tabela importacoes_sheets:**")
+            for coluna, tipo in colunas:
+                st.write(f"   - {coluna} ({tipo})")
+            cursor.close()
+            return_connection(conn)
+        except Exception as e:
+            st.error(f"Erro: {e}")
+
+
     
     # ===== SEÇÃO 1: ESTATÍSTICAS =====
     try:

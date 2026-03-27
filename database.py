@@ -408,15 +408,15 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
         
         conn.commit()
         
-        # Registrar importação - CORRIGIDO: usar os nomes corretos das colunas
-        cursor.execute("""
-            INSERT INTO importacoes_sheets 
-            (total_linhas_processadas, novos_candidatos, novas_aplicacoes, 
-             candidatos_ignorados, status, importado_por)
-            VALUES (%s, %s, %s, %s, %s, %s)
-        """, (len(dados_candidatos), novos_candidatos, novas_aplicacoes, 
-              candidatos_ignorados, 'sucesso', importado_por))
-        conn.commit()
+        # COMENTADO TEMPORARIAMENTE - Removendo o registro de importação
+        # cursor.execute("""
+        #     INSERT INTO importacoes_sheets 
+        #     (total_linhas_processadas, novos_candidatos, novas_aplicacoes, 
+        #      candidatos_ignorados, status, importado_por)
+        #     VALUES (%s, %s, %s, %s, %s, %s)
+        # """, (len(dados_candidatos), novos_candidatos, novas_aplicacoes, 
+        #       candidatos_ignorados, 'sucesso', importado_por))
+        # conn.commit()
         
         cursor.close()
         
