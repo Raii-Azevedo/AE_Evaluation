@@ -187,7 +187,11 @@ elif st.session_state.processo_id and st.session_state.candidato_id is None:
                 if greenhouse_id:
                     st.caption(f"🏢 [Greenhouse]({greenhouse_id})")
                 if timestamp:
-                    st.caption(f"📅 Aplicação: {timestamp}")
+                    # Formatar timestamp se for string
+                    if isinstance(timestamp, str):
+                        st.caption(f"📅 Aplicação: {timestamp}")
+                    else:
+                        st.caption(f"📅 Aplicação: {timestamp.strftime('%d/%m/%Y %H:%M') if timestamp else 'Data não informada'}")
 
             with col2:
                 if nota_final is None:
@@ -267,7 +271,10 @@ elif st.session_state.candidato_id:
             if optional_file:
                 st.markdown(f"📁 [Arquivo Opcional]({optional_file})")
             if timestamp_aplicacao:
-                st.write(f"📅 Data da Aplicação: {timestamp_aplicacao}")
+                if isinstance(timestamp_aplicacao, str):
+                    st.write(f"📅 Data da Aplicação: {timestamp_aplicacao}")
+                else:
+                    st.write(f"📅 Data da Aplicação: {timestamp_aplicacao.strftime('%d/%m/%Y %H:%M')}")
 
     # Buscar avaliações
     cursor.execute("""
@@ -284,7 +291,15 @@ elif st.session_state.candidato_id:
     else:
         for avaliacao_id, nota_final, avaliador, comentario, priorizacao, gh_atualizada, data_avaliacao in avaliacoes:
 
-            st.subheader(f"Avaliação - {avaliador} ({data_avaliacao.strftime('%d/%m/%Y %H:%M') if data_avaliacao else 'Data não registrada'})")
+            # Formatar data da avaliação com segurança
+            data_formatada = "Data não registrada"
+            if data_avaliacao:
+                if isinstance(data_avaliacao, str):
+                    data_formatada = data_avaliacao
+                else:
+                    data_formatada = data_avaliacao.strftime('%d/%m/%Y %H:%M')
+
+            st.subheader(f"Avaliação - {avaliador} ({data_formatada})")
             
             col1, col2, col3 = st.columns(3)
             with col1:

@@ -58,34 +58,49 @@ def init_db():
 
     print("Criando/verificando tabelas no PostgreSQL...")
 
-    # Tabela processos
+    # ===== TABELA PROCESSOS =====
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS processos (
         id SERIAL PRIMARY KEY,
         nome TEXT NOT NULL,
-        job_title TEXT,
-        admission_category TEXT,
         area TEXT,
+        senioridade TEXT,
+        status TEXT DEFAULT 'Aberto',
         data_inicio TIMESTAMP DEFAULT NOW()
     )
     """)
+    
+    # Adicionar colunas na tabela processos
+    adicionar_coluna_se_nao_existe(cursor, 'processos', 'job_title', 'TEXT', "''")
+    adicionar_coluna_se_nao_existe(cursor, 'processos', 'admission_category', 'TEXT', "''")
+    adicionar_coluna_se_nao_existe(cursor, 'processos', 'tipo', 'TEXT', "''")
+    adicionar_coluna_se_nao_existe(cursor, 'processos', 'local', 'TEXT', "''")
+    adicionar_coluna_se_nao_existe(cursor, 'processos', 'descricao', 'TEXT', "''")
 
-    # Tabela candidatos (dados demográficos únicos por email)
+    # ===== TABELA CANDIDATOS =====
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS candidatos (
         id SERIAL PRIMARY KEY,
         nome TEXT NOT NULL,
         email TEXT UNIQUE,
-        linkedin TEXT,
         data_cadastro TIMESTAMP DEFAULT NOW()
     )
     """)
-
-    # Adicionar colunas que podem estar faltando na tabela candidatos
+    
+    # Adicionar todas as colunas necessárias na tabela candidatos
+    adicionar_coluna_se_nao_existe(cursor, 'candidatos', 'linkedin', 'TEXT', "''")
     adicionar_coluna_se_nao_existe(cursor, 'candidatos', 'gh_atualizada', 'BOOLEAN', 'false')
     adicionar_coluna_se_nao_existe(cursor, 'candidatos', 'priorizacao', 'TEXT', "'Não priorizar'")
+    adicionar_coluna_se_nao_existe(cursor, 'candidatos', 'status', 'TEXT', "''")
+    adicionar_coluna_se_nao_existe(cursor, 'candidatos', 'pais', 'TEXT', "''")
+    adicionar_coluna_se_nao_existe(cursor, 'candidatos', 'nivel', 'TEXT', "''")
+    adicionar_coluna_se_nao_existe(cursor, 'candidatos', 'email_application', 'TEXT', "''")
+    adicionar_coluna_se_nao_existe(cursor, 'candidatos', 'greenhouse_id', 'TEXT', "''")
+    adicionar_coluna_se_nao_existe(cursor, 'candidatos', 'pbix_file', 'TEXT', "''")
+    adicionar_coluna_se_nao_existe(cursor, 'candidatos', 'optional_file', 'TEXT', "''")
+    adicionar_coluna_se_nao_existe(cursor, 'candidatos', 'timestamp', 'TIMESTAMP', 'NULL')
 
-    # NOVA TABELA: Aplicações (cada vez que o candidato se inscreve)
+    # ===== TABELA APLICACOES =====
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS aplicacoes (
         id SERIAL PRIMARY KEY,
@@ -100,7 +115,7 @@ def init_db():
     )
     """)
 
-    # Tabela avaliacoes (vinculada à aplicação específica)
+    # ===== TABELA AVALIACOES =====
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS avaliacoes (
         id SERIAL PRIMARY KEY,
@@ -114,7 +129,7 @@ def init_db():
     )
     """)
 
-    # Tabela avaliacoes_criterios
+    # ===== TABELA AVALIACOES_CRITERIOS =====
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS avaliacoes_criterios (
         id SERIAL PRIMARY KEY,
@@ -126,7 +141,7 @@ def init_db():
     )
     """)
 
-    # Tabela allowed_emails
+    # ===== TABELA ALLOWED_EMAILS =====
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS allowed_emails (
         id SERIAL PRIMARY KEY,
@@ -137,7 +152,7 @@ def init_db():
     )
     """)
 
-    # Tabela importacoes_sheets (atualizada)
+    # ===== TABELA IMPORTACOES_SHEETS =====
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS importacoes_sheets (
         id SERIAL PRIMARY KEY,
@@ -199,10 +214,10 @@ def get_ou_criar_processo(nome_processo, job_title, admission_category):
             # Criar novo processo
             print(f"🆕 Criando novo processo: {nome_processo}")
             cursor.execute("""
-                INSERT INTO processos (nome, job_title, admission_category)
-                VALUES (%s, %s, %s)
+                INSERT INTO processos (nome, job_title, admission_category, status)
+                VALUES (%s, %s, %s, %s)
                 RETURNING id
-            """, (nome_processo, job_title, admission_category))
+            """, (nome_processo, job_title, admission_category, 'Aberto'))
             
             processo_id = cursor.fetchone()[0]
             conn.commit()
@@ -217,6 +232,7 @@ def get_ou_criar_processo(nome_processo, job_title, admission_category):
     finally:
         if conn:
             return_connection(conn)
+
 
 def get_processos_ativos():
     """Busca todos os processos"""
@@ -247,7 +263,7 @@ def get_processo_info(processo_id):
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT nome, job_title, admission_category 
+            SELECT nome, job_title, admission_category, status 
             FROM processos WHERE id = %s
         """, (processo_id,))
         result = cursor.fetchone()
@@ -261,7 +277,7 @@ def get_processo_info(processo_id):
             return_connection(conn)
 
 
-# ===== FUNÇÕES DE IMPORTAÇÃO (APENAS 2026 E PRIORIZAÇÃO EM BRANCO) =====
+# ===== FUNÇÕES DE IMPORTAÇÃO =====
 
 def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
     """
@@ -291,7 +307,6 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
             if timestamp_aplicacao:
                 try:
                     if isinstance(timestamp_aplicacao, str):
-                        # Formato: "21/01/2026 20:08:01"
                         partes = timestamp_aplicacao.split('/')
                         if len(partes) >= 3:
                             ano_aplicacao = int(partes[2].split(' ')[0])
@@ -395,6 +410,8 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
         if conn:
             conn.rollback()
         print(f"Erro ao importar candidatos: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             'sucesso': False,
             'erro': str(e)
@@ -403,14 +420,11 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
         if conn:
             return_connection(conn)
 
+
 # ===== FUNÇÕES DE APLICAÇÕES =====
 
 def get_aplicacoes_pendentes_2026(processo_id):
-    """
-    Busca aplicações pendentes de avaliação que são:
-    - De 2026
-    - Sem avaliação
-    """
+    """Busca aplicações pendentes de avaliação que são de 2026 e sem avaliação"""
     conn = None
     try:
         conn = get_connection()
@@ -448,9 +462,7 @@ def get_aplicacoes_pendentes_2026(processo_id):
 
 
 def get_aplicacoes_avaliadas_2026(processo_id):
-    """
-    Busca aplicações já avaliadas em 2026
-    """
+    """Busca aplicações já avaliadas em 2026"""
     conn = None
     try:
         conn = get_connection()
@@ -488,9 +500,7 @@ def get_aplicacoes_avaliadas_2026(processo_id):
 
 
 def get_stats_2026(processo_id):
-    """
-    Estatísticas específicas para 2026
-    """
+    """Estatísticas específicas para 2026"""
     conn = None
     try:
         conn = get_connection()
@@ -763,152 +773,3 @@ def get_avaliacoes_recentes(limite=10):
     finally:
         if conn:
             return_connection(conn)
-
-
-def adicionar_coluna_se_nao_existe(cursor, tabela, coluna, tipo, valor_padrao=None):
-    """Adiciona uma coluna se ela não existir na tabela"""
-    try:
-        cursor.execute(f"""
-            SELECT column_name 
-            FROM information_schema.columns 
-            WHERE table_name = %s AND column_name = %s
-        """, (tabela, coluna))
-        
-        if not cursor.fetchone():
-            sql = f"ALTER TABLE {tabela} ADD COLUMN {coluna} {tipo}"
-            if valor_padrao:
-                sql += f" DEFAULT {valor_padrao}"
-            cursor.execute(sql)
-            print(f"Coluna {coluna} adicionada à tabela {tabela}")
-            return True
-        return False
-    except Exception as e:
-        print(f"Erro ao adicionar coluna {coluna}: {e}")
-        return False
-
-
-def init_db():
-    """Initialize database tables with migrations"""
-    conn = get_connection()
-    cursor = conn.cursor()
-
-    print("Criando/verificando tabelas no PostgreSQL...")
-
-    # Tabela processos
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS processos (
-        id SERIAL PRIMARY KEY,
-        nome TEXT NOT NULL,
-        area TEXT,
-        senioridade TEXT,
-        status TEXT DEFAULT 'Aberto',
-        data_inicio TIMESTAMP DEFAULT NOW()
-    )
-    """)
-    
-    # Adicionar colunas que podem estar faltando
-    adicionar_coluna_se_nao_existe(cursor, 'processos', 'job_title', 'TEXT', "''")
-    adicionar_coluna_se_nao_existe(cursor, 'processos', 'admission_category', 'TEXT', "''")
-    adicionar_coluna_se_nao_existe(cursor, 'processos', 'tipo', 'TEXT', "''")
-    adicionar_coluna_se_nao_existe(cursor, 'processos', 'local', 'TEXT', "''")
-    adicionar_coluna_se_nao_existe(cursor, 'processos', 'descricao', 'TEXT', "''")
-
-    # Tabela candidatos
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS candidatos (
-        id SERIAL PRIMARY KEY,
-        nome TEXT NOT NULL,
-        email TEXT UNIQUE,
-        linkedin TEXT,
-        data_cadastro TIMESTAMP DEFAULT NOW()
-    )
-    """)
-    
-    adicionar_coluna_se_nao_existe(cursor, 'candidatos', 'gh_atualizada', 'BOOLEAN', 'false')
-    adicionar_coluna_se_nao_existe(cursor, 'candidatos', 'priorizacao', 'TEXT', "'Não priorizar'")
-
-    # Tabela aplicacoes
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS aplicacoes (
-        id SERIAL PRIMARY KEY,
-        candidato_id INTEGER REFERENCES candidatos(id) ON DELETE CASCADE,
-        processo_id INTEGER REFERENCES processos(id) ON DELETE CASCADE,
-        greenhouse_id TEXT,
-        pbix_file TEXT,
-        optional_file TEXT,
-        timestamp_aplicacao TIMESTAMP,
-        data_importacao TIMESTAMP DEFAULT NOW(),
-        UNIQUE(candidato_id, processo_id, timestamp_aplicacao)
-    )
-    """)
-
-    # Tabela avaliacoes
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS avaliacoes (
-        id SERIAL PRIMARY KEY,
-        aplicacao_id INTEGER REFERENCES aplicacoes(id) ON DELETE CASCADE,
-        nota_final NUMERIC,
-        avaliador TEXT,
-        comentario_final TEXT,
-        priorizacao TEXT,
-        gh_atualizada BOOLEAN DEFAULT FALSE,
-        data_avaliacao TIMESTAMP DEFAULT NOW()
-    )
-    """)
-
-    # Tabela avaliacoes_criterios
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS avaliacoes_criterios (
-        id SERIAL PRIMARY KEY,
-        avaliacao_id INTEGER REFERENCES avaliacoes(id) ON DELETE CASCADE,
-        bloco TEXT,
-        criterio TEXT,
-        nota NUMERIC,
-        justificativa TEXT
-    )
-    """)
-
-    # Tabela allowed_emails
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS allowed_emails (
-        id SERIAL PRIMARY KEY,
-        email TEXT UNIQUE NOT NULL,
-        role TEXT DEFAULT 'user',
-        added_by TEXT,
-        added_at TIMESTAMP DEFAULT NOW()
-    )
-    """)
-
-    # Tabela importacoes_sheets
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS importacoes_sheets (
-        id SERIAL PRIMARY KEY,
-        data_importacao TIMESTAMP DEFAULT NOW(),
-        total_linhas_processadas INTEGER,
-        novos_candidatos INTEGER,
-        novas_aplicacoes INTEGER,
-        candidatos_ignorados INTEGER,
-        status TEXT,
-        detalhes TEXT,
-        importado_por TEXT
-    )
-    """)
-
-    conn.commit()
-
-    # Inserir admin padrão
-    try:
-        cursor.execute("""
-        INSERT INTO allowed_emails (email, role, added_by)
-        VALUES ('admin@artefact.com', 'admin', 'system')
-        ON CONFLICT (email) DO UPDATE SET role = 'admin'
-        """)
-        conn.commit()
-        print("Admin padrão garantido: admin@artefact.com")
-    except Exception as e:
-        conn.rollback()
-        print(f"Erro ao criar admin: {e}")
-
-    cursor.close()
-    return_connection(conn)
-    print("✅ Banco de dados inicializado com sucesso!")

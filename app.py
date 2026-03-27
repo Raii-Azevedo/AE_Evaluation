@@ -55,7 +55,9 @@ def init_session_state():
         "candidato_filter": "todos",
         "search_term": "",
         "dados_sheets_cache": None,
-        "ultima_sincronizacao": None
+        "ultima_sincronizacao": None,
+        "executar_importacao": False,
+        "candidatos_para_importar": []
     }
     
     for key, value in defaults.items():
@@ -159,187 +161,6 @@ def carregar_google_sheets_demo():
             'Priorização': ''
         }
     ]
-
-def sincronizar_dados_google_sheets():
-    """Sincroniza APENAS candidatos de 2026 com priorização em branco"""
-    
-    dados = carregar_google_sheets()
-    
-    if not dados:
-        st.error("❌ Não foi possível carregar dados do Google Sheets")
-        return False
-    
-    # Analisar dados
-    total_linhas = len(dados)
-    candidatos_2026 = 0
-    candidatos_com_priorizacao = 0
-    candidatos_para_importar = []
-    
-    for linha in dados:
-        timestamp = linha.get('Timestamp', '')
-        priorizacao = linha.get('Priorização', '').strip()
-        job_title = linha.get('Job title', '').strip()
-        admission_category = linha.get('Admission Category', '').strip()
-        
-        ano = None
-        if timestamp:
-            try:
-                if isinstance(timestamp, str):
-                    partes = timestamp.split('/')
-                    if len(partes) >= 3:
-                        ano = int(partes[2].split(' ')[0])
-            except:
-                pass
-        
-        if ano == 2026:
-            candidatos_2026 += 1
-            if priorizacao and priorizacao not in ['', 'Não priorizar']:
-                candidatos_com_priorizacao += 1
-            else:
-                if job_title and admission_category:
-                    candidatos_para_importar.append({
-                        'timestamp': timestamp,
-                        'email': linha.get('Email address', '').strip(),
-                        'nome': linha.get('Full name', '').strip(),
-                        'linkedin': linha.get('LinkedIn', '').strip(),
-                        'greenhouse_id': linha.get('Greenhouse ID', '').strip(),
-                        'pbix_file': linha.get('Pbix file', '').strip(),
-                        'optional_file': linha.get('Optional file', '').strip(),
-                        'job_title': job_title,
-                        'admission_category': admission_category,
-                        'priorizacao': priorizacao
-                    })
-    
-    # Mostrar análise
-    st.info(f"""
-    📊 **Análise dos dados:**
-    - Total de registros: {total_linhas}
-    - Registros de 2026: {candidatos_2026}
-    - Destes, já avaliados (com priorização): {candidatos_com_priorizacao}
-    - **A serem importados:** {len(candidatos_para_importar)}
-    """)
-    
-    if len(candidatos_para_importar) == 0:
-        st.warning("⚠️ Nenhum candidato para importar.")
-        return False
-    
-    # Mostrar preview
-    with st.expander("📋 Preview dos candidatos a serem importados", expanded=True):
-        preview_df = pd.DataFrame(candidatos_para_importar)
-        st.dataframe(preview_df[['nome', 'email', 'job_title', 'admission_category']], use_container_width=True)
-    
-    # Armazenar no session state para usar depois
-    st.session_state.candidatos_para_importar = candidatos_para_importar
-    
-    # Botão para confirmar importação
-    if st.button("✅ Confirmar Importação", type="primary", use_container_width=True):
-        st.session_state.executar_importacao = True
-        st.rerun()
-    
-    return False
-
-
-def executar_importacao():
-    """Executa a importação dos candidatos"""
-    if not st.session_state.get('executar_importacao', False):
-        return False
-    
-    candidatos_para_importar = st.session_state.get('candidatos_para_importar', [])
-    if not candidatos_para_importar:
-        st.warning("⚠️ Nenhum candidato para importar.")
-        st.session_state.executar_importacao = False
-        return False
-    
-    st.write("### 🚀 Iniciando importação...")
-    
-    # Agrupar por Job Title + Admission Category
-    processos_data = {}
-    for candidato in candidatos_para_importar:
-        chave = f"{candidato['job_title']}||{candidato['admission_category']}"
-        
-        if chave not in processos_data:
-            processos_data[chave] = {
-                'nome': f"{candidato['job_title']} - {candidato['admission_category']}",
-                'job_title': candidato['job_title'],
-                'admission_category': candidato['admission_category'],
-                'candidatos': []
-            }
-        
-        processos_data[chave]['candidatos'].append({
-            'timestamp': candidato['timestamp'],
-            'email': candidato['email'],
-            'nome': candidato['nome'],
-            'linkedin': candidato['linkedin'],
-            'greenhouse_id': candidato['greenhouse_id'],
-            'pbix_file': candidato['pbix_file'],
-            'optional_file': candidato['optional_file'],
-            'priorizacao': candidato['priorizacao']
-        })
-    
-    st.write(f"📁 Serão criados/atualizados {len(processos_data)} processo(s):")
-    for chave, processo in processos_data.items():
-        st.write(f"   - **{processo['nome']}** ({len(processo['candidatos'])} candidatos)")
-    
-    total_importados = 0
-    processos_criados = 0
-    
-    # Barra de progresso
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    for idx, (chave, processo) in enumerate(processos_data.items()):
-        status_text.text(f"Processando: {processo['nome']}...")
-        
-        # Criar ou obter processo
-        processo_id = get_ou_criar_processo(
-            processo['nome'],
-            processo['job_title'],
-            processo['admission_category']
-        )
-        
-        if processo_id:
-            processos_criados += 1
-            st.write(f"✅ Processo **{processo['nome']}** criado/obtido (ID: {processo_id})")
-            
-            # Importar candidatos
-            resultado = importar_candidatos_sheets(
-                processo['candidatos'],
-                processo_id,
-                st.session_state.user_email
-            )
-            
-            if resultado.get('sucesso'):
-                novas = resultado.get('novas_aplicacoes', 0)
-                total_importados += novas
-                st.success(f"   ✅ {novas} candidatos importados para este processo")
-            else:
-                st.error(f"   ❌ Erro: {resultado.get('erro', 'Erro desconhecido')}")
-        else:
-            st.error(f"❌ Falha ao criar/obter processo {processo['nome']}")
-        
-        # Atualizar progresso
-        progress_bar.progress((idx + 1) / len(processos_data))
-    
-    status_text.text("Importação concluída!")
-    
-    if total_importados > 0:
-        st.success(f"""
-        ✅ **Sincronização concluída!**
-        - Processos criados/atualizados: {processos_criados}
-        - Novas aplicações criadas: {total_importados}
-        """)
-        st.session_state.ultima_sincronizacao = datetime.now()
-        st.session_state.executar_importacao = False
-        st.session_state.candidatos_para_importar = []
-        
-        # Botão para recarregar
-        if st.button("🔄 Recarregar página para ver os novos dados", use_container_width=True):
-            st.rerun()
-        return True
-    else:
-        st.warning("⚠️ Nenhum candidato foi importado.")
-        st.session_state.executar_importacao = False
-        return False
 
 # ===== STYLES =====
 def get_styles(dark_mode=False):
@@ -589,7 +410,6 @@ def admin_dashboard():
     # ===== SEÇÃO 2: FERRAMENTAS DE DEBUG =====
     with st.expander("🔧 Ferramentas de Manutenção e Debug"):
         
-        # Teste de conexão
         if st.button("🔌 Testar conexão com banco"):
             try:
                 conn = get_connection()
@@ -602,7 +422,6 @@ def admin_dashboard():
             except Exception as e:
                 st.error(f"❌ Erro na conexão: {e}")
         
-        # Criar processo de teste
         if st.button("🧪 Criar processo de teste"):
             try:
                 conn = get_connection()
@@ -621,7 +440,6 @@ def admin_dashboard():
             except Exception as e:
                 st.error(f"❌ Erro: {e}")
         
-        # Listar processos existentes
         if st.button("📋 Listar processos existentes"):
             try:
                 conn = get_connection()
@@ -639,7 +457,6 @@ def admin_dashboard():
             except Exception as e:
                 st.error(f"❌ Erro: {e}")
         
-        # Verificar estrutura das tabelas
         if st.button("🏗️ Verificar estrutura das tabelas"):
             try:
                 conn = get_connection()
@@ -673,12 +490,9 @@ def admin_dashboard():
     # ===== SEÇÃO 3: SINCRONIZAÇÃO COM GOOGLE SHEETS =====
     st.subheader("🔄 Sincronização com Google Sheets")
     
-    # Verificar se precisa executar importação
     if st.session_state.get('executar_importacao', False):
-        # Executar a importação
         executar_importacao()
     else:
-        # Mostrar a interface de sincronização
         sincronizar_dados_google_sheets()
     
     if st.session_state.ultima_sincronizacao:
@@ -858,46 +672,32 @@ def executar_importacao():
     for idx, (chave, processo) in enumerate(processos_data.items()):
         status_text.text(f"Processando: {processo['nome']}...")
         
-        st.write(f"\n🔄 **{processo['nome']}**")
-        st.write(f"   Job Title: '{processo['job_title']}'")
-        st.write(f"   Admission Category: '{processo['admission_category']}'")
+        # Criar ou obter processo
+        processo_id = get_ou_criar_processo(
+            processo['nome'],
+            processo['job_title'],
+            processo['admission_category']
+        )
         
-        try:
-            # Tentar criar processo
-            processo_id = get_ou_criar_processo(
-                processo['nome'],
-                processo['job_title'],
-                processo['admission_category']
+        if processo_id:
+            processos_criados += 1
+            st.write(f"✅ Processo **{processo['nome']}** criado/obtido (ID: {processo_id})")
+            
+            # Importar candidatos
+            resultado = importar_candidatos_sheets(
+                processo['candidatos'],
+                processo_id,
+                st.session_state.user_email
             )
             
-            if processo_id:
-                processos_criados += 1
-                st.success(f"   ✅ Processo ID: {processo_id}")
-                
-                # Importar candidatos
-                resultado = importar_candidatos_sheets(
-                    processo['candidatos'],
-                    processo_id,
-                    st.session_state.user_email
-                )
-                
-                if resultado.get('sucesso'):
-                    novas = resultado.get('novas_aplicacoes', 0)
-                    total_importados += novas
-                    st.success(f"   ✅ {novas} candidatos importados")
-                    
-                    # Mostrar candidatos
-                    for c in processo['candidatos']:
-                        st.write(f"      - {c['nome']} ({c['email']})")
-                else:
-                    st.error(f"   ❌ Erro na importação: {resultado.get('erro', 'Erro desconhecido')}")
+            if resultado.get('sucesso'):
+                novas = resultado.get('novas_aplicacoes', 0)
+                total_importados += novas
+                st.success(f"   ✅ {novas} candidatos importados para este processo")
             else:
-                st.error(f"   ❌ Falha ao criar processo")
-                
-        except Exception as e:
-            st.error(f"   ❌ Erro: {e}")
-            import traceback
-            st.code(traceback.format_exc())
+                st.error(f"   ❌ Erro: {resultado.get('erro', 'Erro desconhecido')}")
+        else:
+            st.error(f"❌ Falha ao criar/obter processo {processo['nome']}")
         
         # Atualizar progresso
         progress_bar.progress((idx + 1) / len(processos_data))
@@ -914,7 +714,6 @@ def executar_importacao():
         st.session_state.executar_importacao = False
         st.session_state.candidatos_para_importar = []
         
-        # Botão para recarregar
         if st.button("🔄 Recarregar página para ver os novos dados", use_container_width=True):
             st.rerun()
         return True
@@ -922,8 +721,8 @@ def executar_importacao():
         st.warning("⚠️ Nenhum candidato foi importado.")
         st.session_state.executar_importacao = False
         return False
-    
-    
+
+
 def admin_relatorios():
     st.title("📈 Relatórios e Análises")
     
@@ -1361,7 +1160,7 @@ else:
                     with col3:
                         st.metric("⭐ Média", f"{stats[2]:.1f}" if stats[2] else "—")
                     with col4:
-                        st.metric("🏢 GH Atualizado", stats[6])
+                        st.metric("🏢 GH Atualizado", stats[6] if len(stats) > 6 else 0)
                 
                 st.divider()
                 
@@ -1411,21 +1210,28 @@ else:
                 elif st.session_state.candidato_filter == "pendentes":
                     candidatos_exibir = pendentes
                 else:
-                    # Mesclar todos
                     candidatos_exibir = pendentes + avaliados
                 
                 # Mostrar contagem
                 st.caption(f"Mostrando {len(candidatos_exibir)} candidatos")
                 
-                # Exibir pendentes primeiro
+                # Exibir pendentes
                 for app in pendentes:
                     aplicacao_id, candidato_id, nome, email, linkedin, timestamp, greenhouse_id, pbix_file, optional_file = app
+                    
+                    # Formatar timestamp com segurança
+                    timestamp_str = "Data não informada"
+                    if timestamp:
+                        if isinstance(timestamp, str):
+                            timestamp_str = timestamp
+                        else:
+                            timestamp_str = timestamp.strftime('%d/%m/%Y %H:%M')
                     
                     st.markdown(f"""
                     <div class="card">
                         <h3>{nome} <span class="badge badge-info">⏳ Pendente</span></h3>
                         <p>📧 {email}</p>
-                        <p>📅 Data de aplicação: {timestamp if timestamp else 'Data não informada'}</p>
+                        <p>📅 Data de aplicação: {timestamp_str}</p>
                         <p><span class="badge badge-gh-pending">⚠️ Pendente GH</span></p>
                     </div>
                     """, unsafe_allow_html=True)
@@ -1466,6 +1272,14 @@ else:
                     gh_badge = "badge-gh-done" if gh_atualizada else "badge-gh-pending"
                     gh_text = "✅ GH Atualizado" if gh_atualizada else "⚠️ Pendente GH"
                     
+                    # Formatar data da avaliação
+                    data_avaliacao_str = "Data não registrada"
+                    if data_avaliacao:
+                        if isinstance(data_avaliacao, str):
+                            data_avaliacao_str = data_avaliacao
+                        else:
+                            data_avaliacao_str = data_avaliacao.strftime('%d/%m/%Y')
+                    
                     st.markdown(f"""
                     <div class="card">
                         <h3>{nome} 
@@ -1473,14 +1287,13 @@ else:
                             {prior_badge}
                         </h3>
                         <p>📧 {email}</p>
-                        <p>📅 Avaliado em: {data_avaliacao.strftime('%d/%m/%Y') if data_avaliacao else 'Data não registrada'}</p>
+                        <p>📅 Avaliado em: {data_avaliacao_str}</p>
                         <p><span class="badge {gh_badge}">{gh_text}</span></p>
                     </div>
                     """, unsafe_allow_html=True)
                     
                     col_btn1, col_btn2 = st.columns(2)
                     with col_btn1:
-                        # Buscar ID da avaliação para ver detalhes
                         avaliacao = get_ultima_avaliacao_por_aplicacao(aplicacao_id)
                         if avaliacao:
                             avaliacao_id_db = avaliacao[0]
@@ -1517,7 +1330,6 @@ else:
                     st.session_state.view = "processo"
                     st.rerun()
                 
-                # Buscar dados da aplicação
                 app_info = get_aplicacao_info(aplicacao_id)
                 if app_info:
                     aplicacao_id, candidato_id, nome, email, linkedin, greenhouse_id, pbix_file, optional_file, timestamp = app_info
@@ -1526,7 +1338,6 @@ else:
                     if processo_info:
                         nome_processo, job_title, admission_category = processo_info
                         
-                        # Determinar área (simplificado)
                         area_processo = "Analytics Engineer"
                         
                         st.title(f"📝 Avaliar: {nome}")
@@ -1561,10 +1372,25 @@ else:
                 with col2:
                     st.metric("Avaliador", extract_name_from_email(avaliador))
                 
+                # Formatar datas
+                data_avaliacao_str = "Data não registrada"
+                if data_avaliacao:
+                    if isinstance(data_avaliacao, str):
+                        data_avaliacao_str = data_avaliacao
+                    else:
+                        data_avaliacao_str = data_avaliacao.strftime('%d/%m/%Y %H:%M')
+                
+                timestamp_str = "Data não informada"
+                if timestamp:
+                    if isinstance(timestamp, str):
+                        timestamp_str = timestamp
+                    else:
+                        timestamp_str = timestamp.strftime('%d/%m/%Y %H:%M')
+                
                 st.write(f"**Candidato:** {nome} ({email})")
                 st.write(f"**Processo:** {processo_nome}")
-                st.write(f"**Data da Avaliação:** {data_avaliacao.strftime('%d/%m/%Y %H:%M') if data_avaliacao else 'Data não registrada'}")
-                st.write(f"**Data da Aplicação:** {timestamp if timestamp else 'Data não informada'}")
+                st.write(f"**Data da Avaliação:** {data_avaliacao_str}")
+                st.write(f"**Data da Aplicação:** {timestamp_str}")
                 st.write(f"**Priorização:** {priorizacao if priorizacao else 'Não priorizar'}")
                 st.write(f"**GH Atualizado:** {'✅ Sim' if gh_atualizada else '❌ Não'}")
                 
