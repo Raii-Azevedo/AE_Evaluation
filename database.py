@@ -763,3 +763,152 @@ def get_avaliacoes_recentes(limite=10):
     finally:
         if conn:
             return_connection(conn)
+
+
+def adicionar_coluna_se_nao_existe(cursor, tabela, coluna, tipo, valor_padrao=None):
+    """Adiciona uma coluna se ela não existir na tabela"""
+    try:
+        cursor.execute(f"""
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_name = %s AND column_name = %s
+        """, (tabela, coluna))
+        
+        if not cursor.fetchone():
+            sql = f"ALTER TABLE {tabela} ADD COLUMN {coluna} {tipo}"
+            if valor_padrao:
+                sql += f" DEFAULT {valor_padrao}"
+            cursor.execute(sql)
+            print(f"Coluna {coluna} adicionada à tabela {tabela}")
+            return True
+        return False
+    except Exception as e:
+        print(f"Erro ao adicionar coluna {coluna}: {e}")
+        return False
+
+
+def init_db():
+    """Initialize database tables with migrations"""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    print("Criando/verificando tabelas no PostgreSQL...")
+
+    # Tabela processos
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS processos (
+        id SERIAL PRIMARY KEY,
+        nome TEXT NOT NULL,
+        area TEXT,
+        senioridade TEXT,
+        status TEXT DEFAULT 'Aberto',
+        data_inicio TIMESTAMP DEFAULT NOW()
+    )
+    """)
+    
+    # Adicionar colunas que podem estar faltando
+    adicionar_coluna_se_nao_existe(cursor, 'processos', 'job_title', 'TEXT', "''")
+    adicionar_coluna_se_nao_existe(cursor, 'processos', 'admission_category', 'TEXT', "''")
+    adicionar_coluna_se_nao_existe(cursor, 'processos', 'tipo', 'TEXT', "''")
+    adicionar_coluna_se_nao_existe(cursor, 'processos', 'local', 'TEXT', "''")
+    adicionar_coluna_se_nao_existe(cursor, 'processos', 'descricao', 'TEXT', "''")
+
+    # Tabela candidatos
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS candidatos (
+        id SERIAL PRIMARY KEY,
+        nome TEXT NOT NULL,
+        email TEXT UNIQUE,
+        linkedin TEXT,
+        data_cadastro TIMESTAMP DEFAULT NOW()
+    )
+    """)
+    
+    adicionar_coluna_se_nao_existe(cursor, 'candidatos', 'gh_atualizada', 'BOOLEAN', 'false')
+    adicionar_coluna_se_nao_existe(cursor, 'candidatos', 'priorizacao', 'TEXT', "'Não priorizar'")
+
+    # Tabela aplicacoes
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS aplicacoes (
+        id SERIAL PRIMARY KEY,
+        candidato_id INTEGER REFERENCES candidatos(id) ON DELETE CASCADE,
+        processo_id INTEGER REFERENCES processos(id) ON DELETE CASCADE,
+        greenhouse_id TEXT,
+        pbix_file TEXT,
+        optional_file TEXT,
+        timestamp_aplicacao TIMESTAMP,
+        data_importacao TIMESTAMP DEFAULT NOW(),
+        UNIQUE(candidato_id, processo_id, timestamp_aplicacao)
+    )
+    """)
+
+    # Tabela avaliacoes
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS avaliacoes (
+        id SERIAL PRIMARY KEY,
+        aplicacao_id INTEGER REFERENCES aplicacoes(id) ON DELETE CASCADE,
+        nota_final NUMERIC,
+        avaliador TEXT,
+        comentario_final TEXT,
+        priorizacao TEXT,
+        gh_atualizada BOOLEAN DEFAULT FALSE,
+        data_avaliacao TIMESTAMP DEFAULT NOW()
+    )
+    """)
+
+    # Tabela avaliacoes_criterios
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS avaliacoes_criterios (
+        id SERIAL PRIMARY KEY,
+        avaliacao_id INTEGER REFERENCES avaliacoes(id) ON DELETE CASCADE,
+        bloco TEXT,
+        criterio TEXT,
+        nota NUMERIC,
+        justificativa TEXT
+    )
+    """)
+
+    # Tabela allowed_emails
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS allowed_emails (
+        id SERIAL PRIMARY KEY,
+        email TEXT UNIQUE NOT NULL,
+        role TEXT DEFAULT 'user',
+        added_by TEXT,
+        added_at TIMESTAMP DEFAULT NOW()
+    )
+    """)
+
+    # Tabela importacoes_sheets
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS importacoes_sheets (
+        id SERIAL PRIMARY KEY,
+        data_importacao TIMESTAMP DEFAULT NOW(),
+        total_linhas_processadas INTEGER,
+        novos_candidatos INTEGER,
+        novas_aplicacoes INTEGER,
+        candidatos_ignorados INTEGER,
+        status TEXT,
+        detalhes TEXT,
+        importado_por TEXT
+    )
+    """)
+
+    conn.commit()
+
+    # Inserir admin padrão
+    try:
+        cursor.execute("""
+        INSERT INTO allowed_emails (email, role, added_by)
+        VALUES ('admin@artefact.com', 'admin', 'system')
+        ON CONFLICT (email) DO UPDATE SET role = 'admin'
+        """)
+        conn.commit()
+        print("Admin padrão garantido: admin@artefact.com")
+    except Exception as e:
+        conn.rollback()
+        print(f"Erro ao criar admin: {e}")
+
+    cursor.close()
+    return_connection(conn)
+    print("✅ Banco de dados inicializado com sucesso!")
