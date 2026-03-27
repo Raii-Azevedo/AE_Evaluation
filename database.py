@@ -29,46 +29,41 @@ def return_connection(conn):
 
 
 def init_db():
-    """Initialize database tables - cached to avoid repeated calls"""
+    """Initialize database tables"""
     conn = get_connection()
     cursor = conn.cursor()
 
     print("Criando/verificando tabelas no PostgreSQL...")
 
+    # Tabela processos
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS processos (
         id SERIAL PRIMARY KEY,
         nome TEXT NOT NULL,
+        job_title TEXT,
+        admission_category TEXT,
         area TEXT,
-        tipo TEXT,
-        senioridade TEXT,
-        status TEXT,
-        local TEXT,
         data_inicio TIMESTAMP DEFAULT NOW()
     )
     """)
 
-    # Tabela candidatos atualizada com novos campos do Google Sheets
+    # Tabela candidatos
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS candidatos (
         id SERIAL PRIMARY KEY,
         nome TEXT NOT NULL,
         email TEXT UNIQUE,
-        email_application TEXT,  -- Email usado na candidatura (pode ser diferente)
-        linkedin TEXT,           -- Perfil do LinkedIn
-        greenhouse_id TEXT,      -- ID do Greenhouse (URL)
-        pbix_file TEXT,          -- Link do arquivo PBIX
-        optional_file TEXT,      -- Link do arquivo opcional
-        status TEXT,             -- Status do candidato (da planilha)
-        pais TEXT,               -- País do candidato
-        nivel TEXT,              -- Nível do candidato
-        priorizacao TEXT,        -- Priorização (Prioridade 1, Não priorize, etc)
-        gh_atualizada BOOLEAN DEFAULT FALSE,  -- Se já foi atualizado no Greenhouse
-        timestamp TIMESTAMP,     -- Data/hora de entrada no sistema (da planilha)
-        data_importacao TIMESTAMP DEFAULT NOW()  -- Quando foi importado para o sistema
+        linkedin TEXT,
+        greenhouse_id TEXT,
+        pbix_file TEXT,
+        optional_file TEXT,
+        gh_atualizada BOOLEAN DEFAULT FALSE,
+        timestamp TIMESTAMP,
+        data_importacao TIMESTAMP DEFAULT NOW()
     )
     """)
 
+    # Tabela processos_candidatos
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS processos_candidatos (
         id SERIAL PRIMARY KEY,
@@ -79,7 +74,7 @@ def init_db():
     )
     """)
 
-    # Tabela avaliacoes atualizada com os novos campos da avaliação técnica
+    # Tabela avaliacoes
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS avaliacoes (
         id SERIAL PRIMARY KEY,
@@ -88,14 +83,12 @@ def init_db():
         nota_final NUMERIC,
         avaliador TEXT,
         comentario_final TEXT,
-        -- Novos campos da avaliação técnica (do Google Sheets)
-        treatment_part NUMERIC,   -- Nota da parte de Tratamento
-        analytics_part NUMERIC,   -- Nota da parte de Analytics
-        visual_part NUMERIC,      -- Nota da parte Visual
+        priorizacao TEXT,
         data TIMESTAMP DEFAULT NOW()
     )
     """)
 
+    # Tabela avaliacoes_criterios
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS avaliacoes_criterios (
         id SERIAL PRIMARY KEY,
@@ -107,7 +100,7 @@ def init_db():
     )
     """)
 
-    # Criar tabela allowed_emails se não existir
+    # Tabela allowed_emails
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS allowed_emails (
         id SERIAL PRIMARY KEY,
@@ -118,7 +111,7 @@ def init_db():
     )
     """)
 
-    # Criar tabela para controle de importação do Google Sheets
+    # Tabela importacoes_sheets
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS importacoes_sheets (
         id SERIAL PRIMARY KEY,
@@ -134,7 +127,7 @@ def init_db():
 
     conn.commit()
 
-    # Inserir admin padrão se não existir (não trunca mais)
+    # Inserir admin padrão
     try:
         cursor.execute("""
         INSERT INTO allowed_emails (email, role, added_by)
@@ -151,19 +144,124 @@ def init_db():
     return_connection(conn)
 
 
-# ===== NOVAS FUNÇÕES PARA INTEGRAÇÃO COM GOOGLE SHEETS =====
+# ===== FUNÇÕES DE PROCESSOS =====
 
-def importar_candidatos_sheets(dados_sheets, processo_id, importado_por):
+def get_ou_criar_processo(nome_processo, job_title, admission_category):
+    """Obtém ou cria um processo baseado no Job Title + Admission Category"""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        # Buscar processo existente
+        cursor.execute("""
+            SELECT id FROM processos 
+            WHERE job_title = %s AND admission_category = %s
+        """, (job_title, admission_category))
+        
+        result = cursor.fetchone()
+        
+        if result:
+            processo_id = result[0]
+        else:
+            # Criar novo processo
+            cursor.execute("""
+                INSERT INTO processos (nome, job_title, admission_category)
+                VALUES (%s, %s, %s)
+                RETURNING id
+            """, (nome_processo, job_title, admission_category))
+            
+            processo_id = cursor.fetchone()[0]
+            conn.commit()
+        
+        cursor.close()
+        return processo_id
+        
+    except Exception as e:
+        print(f"Erro em get_ou_criar_processo: {e}")
+        return None
+    finally:
+        if conn:
+            return_connection(conn)
+
+
+def get_processos_ativos():
+    """Busca todos os processos"""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, nome, job_title, admission_category 
+            FROM processos 
+            ORDER BY nome
+        """)
+        processos = cursor.fetchall()
+        cursor.close()
+        return processos
+    except Exception as e:
+        print(f"Erro ao buscar processos: {e}")
+        return []
+    finally:
+        if conn:
+            return_connection(conn)
+
+
+def get_processo_info(processo_id):
+    """Get processo info by id"""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT nome, job_title, admission_category 
+            FROM processos WHERE id = %s
+        """, (processo_id,))
+        result = cursor.fetchone()
+        cursor.close()
+        return result
+    except Exception as e:
+        print(f"Erro ao buscar processo: {e}")
+        return None
+    finally:
+        if conn:
+            return_connection(conn)
+
+
+def get_stats_processo(processo_id):
+    """Get statistics for a processo"""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT 
+                COUNT(DISTINCT c.id) as total_candidatos,
+                COUNT(a.id) as total_avaliacoes,
+                AVG(a.nota_final) as media_geral,
+                SUM(CASE WHEN a.nota_final >= 8 THEN 1 ELSE 0 END) as aprovados,
+                SUM(CASE WHEN c.gh_atualizada THEN 1 ELSE 0 END) as gh_atualizados
+            FROM processos_candidatos pc
+            JOIN candidatos c ON pc.candidato_id = c.id
+            LEFT JOIN avaliacoes a ON c.id = a.candidato_id AND a.processo_id = %s
+            WHERE pc.processo_id = %s
+        """, (processo_id, processo_id))
+        result = cursor.fetchone()
+        cursor.close()
+        return result
+    except Exception as e:
+        print(f"Erro ao buscar stats: {e}")
+        return None
+    finally:
+        if conn:
+            return_connection(conn)
+
+
+# ===== FUNÇÕES DE CANDIDATOS =====
+
+def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
     """
     Importa candidatos do Google Sheets para o banco de dados
-    
-    Args:
-        dados_sheets: Lista de dicionários com os dados da planilha
-        processo_id: ID do processo ao qual os candidatos serão vinculados
-        importado_por: Email do usuário que realizou a importação
-    
-    Returns:
-        dict: Estatísticas da importação
     """
     conn = None
     try:
@@ -173,20 +271,18 @@ def importar_candidatos_sheets(dados_sheets, processo_id, importado_por):
         novos_candidatos = 0
         candidatos_atualizados = 0
         
-        for linha in dados_sheets:
-            # Extrair dados relevantes
-            timestamp = linha.get('Timestamp')
-            email = linha.get('Email address', '').strip()
-            nome = linha.get('Full name', '').strip()
-            email_application = linha.get('Email used on application', '').strip()
-            linkedin = linha.get('LinkedIn', '').strip()
-            greenhouse_id = linha.get('Greenhouse ID', '').strip()
-            pbix_file = linha.get('Pbix file', '').strip()
-            optional_file = linha.get('Optional file', '').strip()
-            status_sheets = linha.get('Status', '').strip()
-            pais = linha.get('Pais', '').strip()
-            nivel = linha.get('Nível', '').strip()
-            priorizacao = linha.get('Priorização', '').strip()
+        for candidato in dados_candidatos:
+            # Extrair dados
+            timestamp = candidato.get('timestamp')
+            email = candidato.get('email', '').strip()
+            nome = candidato.get('nome', '').strip()
+            linkedin = candidato.get('linkedin', '').strip()
+            greenhouse_id = candidato.get('greenhouse_id', '').strip()
+            pbix_file = candidato.get('pbix_file', '').strip()
+            optional_file = candidato.get('optional_file', '').strip()
+            
+            if not email:
+                continue
             
             # Verificar se o candidato já existe
             cursor.execute("SELECT id FROM candidatos WHERE email = %s", (email,))
@@ -196,24 +292,21 @@ def importar_candidatos_sheets(dados_sheets, processo_id, importado_por):
                 # Inserir novo candidato
                 cursor.execute("""
                     INSERT INTO candidatos 
-                    (nome, email, email_application, linkedin, greenhouse_id, pbix_file, 
-                     optional_file, status, pais, nivel, priorizacao, timestamp)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (nome, email, email_application, linkedin, greenhouse_id, pbix_file, 
-                      optional_file, status_sheets, pais, nivel, priorizacao, timestamp))
-                candidato_id = cursor.lastrowid
+                    (nome, email, linkedin, greenhouse_id, pbix_file, optional_file, timestamp)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    RETURNING id
+                """, (nome, email, linkedin, greenhouse_id, pbix_file, optional_file, timestamp))
+                candidato_id = cursor.fetchone()[0]
                 novos_candidatos += 1
             else:
                 # Atualizar dados do candidato existente
                 candidato_id = existe[0]
                 cursor.execute("""
                     UPDATE candidatos 
-                    SET nome = %s, email_application = %s, linkedin = %s, greenhouse_id = %s,
-                        pbix_file = %s, optional_file = %s, status = %s, pais = %s,
-                        nivel = %s, priorizacao = %s, timestamp = %s
+                    SET nome = %s, linkedin = %s, greenhouse_id = %s,
+                        pbix_file = %s, optional_file = %s, timestamp = %s
                     WHERE id = %s
-                """, (nome, email_application, linkedin, greenhouse_id, pbix_file, 
-                      optional_file, status_sheets, pais, nivel, priorizacao, timestamp, candidato_id))
+                """, (nome, linkedin, greenhouse_id, pbix_file, optional_file, timestamp, candidato_id))
                 candidatos_atualizados += 1
             
             # Vincular candidato ao processo
@@ -223,19 +316,20 @@ def importar_candidatos_sheets(dados_sheets, processo_id, importado_por):
                 ON CONFLICT (processo_id, candidato_id) DO NOTHING
             """, (processo_id, candidato_id))
         
-        # Registrar a importação
+        conn.commit()
+        
+        # Registrar importação
         cursor.execute("""
             INSERT INTO importacoes_sheets 
             (total_linhas_processadas, novos_candidatos, candidatos_atualizados, status, importado_por)
             VALUES (%s, %s, %s, %s, %s)
-        """, (len(dados_sheets), novos_candidatos, candidatos_atualizados, 'sucesso', importado_por))
-        
+        """, (len(dados_candidatos), novos_candidatos, candidatos_atualizados, 'sucesso', importado_por))
         conn.commit()
+        
         cursor.close()
         
         return {
             'sucesso': True,
-            'total': len(dados_sheets),
             'novos': novos_candidatos,
             'atualizados': candidatos_atualizados
         }
@@ -243,10 +337,71 @@ def importar_candidatos_sheets(dados_sheets, processo_id, importado_por):
     except Exception as e:
         if conn:
             conn.rollback()
+        print(f"Erro ao importar candidatos: {e}")
         return {
             'sucesso': False,
             'erro': str(e)
         }
+    finally:
+        if conn:
+            return_connection(conn)
+
+
+def get_candidatos_processo_completo(processo_id):
+    """Busca candidatos de um processo com todas as informações"""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT 
+                c.id, 
+                c.nome, 
+                c.email,
+                c.linkedin,
+                c.greenhouse_id,
+                c.gh_atualizada,
+                c.pbix_file,
+                c.optional_file,
+                c.timestamp as data_entrada,
+                COUNT(a.id) as total_avaliacoes,
+                MAX(a.id) as ultima_avaliacao_id
+            FROM processos_candidatos pc
+            JOIN candidatos c ON pc.candidato_id = c.id
+            LEFT JOIN avaliacoes a ON c.id = a.candidato_id AND a.processo_id = %s
+            WHERE pc.processo_id = %s
+            GROUP BY c.id
+            ORDER BY c.nome
+        """, (processo_id, processo_id))
+        
+        candidatos = cursor.fetchall()
+        cursor.close()
+        return candidatos
+    except Exception as e:
+        print(f"Erro ao buscar candidatos: {e}")
+        return []
+    finally:
+        if conn:
+            return_connection(conn)
+
+
+def get_candidato_info(candidato_id):
+    """Busca informações de um candidato específico"""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT nome, email, linkedin, greenhouse_id, pbix_file, optional_file 
+            FROM candidatos WHERE id = %s
+        """, (candidato_id,))
+        result = cursor.fetchone()
+        cursor.close()
+        return result
+    except Exception as e:
+        print(f"Erro ao buscar candidato: {e}")
+        return None
     finally:
         if conn:
             return_connection(conn)
@@ -276,60 +431,16 @@ def atualizar_gh_status(candidato_id, gh_atualizada):
             return_connection(conn)
 
 
-def get_candidatos_com_gh_status(processo_id):
-    """Busca candidatos com informações de status do Greenhouse"""
-    conn = None
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT 
-                c.id, 
-                c.nome, 
-                c.email,
-                c.greenhouse_id,
-                c.gh_atualizada,
-                c.priorizacao,
-                c.status as candidato_status,
-                COUNT(a.id) as total_avaliacoes,
-                MAX(a.nota_final) as ultima_nota
-            FROM processos_candidatos pc
-            JOIN candidatos c ON pc.candidato_id = c.id
-            LEFT JOIN avaliacoes a
-                ON c.id = a.candidato_id AND a.processo_id = %s
-            WHERE pc.processo_id = %s
-            GROUP BY c.id
-            ORDER BY 
-                CASE 
-                    WHEN c.priorizacao = 'Prioridade 1' THEN 1
-                    WHEN c.priorizacao = 'Prioridade 2' THEN 2
-                    WHEN c.priorizacao = 'Prioridade 3' THEN 3
-                    ELSE 4
-                END,
-                c.nome
-        """, (processo_id, processo_id))
-        
-        candidatos = cursor.fetchall()
-        cursor.close()
-        return candidatos
-    except Exception as e:
-        st.error(f"Erro ao buscar candidatos: {str(e)}")
-        return []
-    finally:
-        if conn:
-            return_connection(conn)
-
+# ===== FUNÇÕES DE AVALIAÇÕES =====
 
 def get_ultima_avaliacao_completa(processo_id, candidato_id):
-    """Busca a última avaliação completa com todos os novos campos"""
+    """Busca a última avaliação completa"""
     conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT nota_final, id, avaliador, treatment_part, analytics_part, 
-                   visual_part, comentario_final, data
+            SELECT nota_final, id, avaliador, comentario_final, data, priorizacao
             FROM avaliacoes 
             WHERE processo_id = %s AND candidato_id = %s 
             ORDER BY data DESC LIMIT 1
@@ -338,7 +449,172 @@ def get_ultima_avaliacao_completa(processo_id, candidato_id):
         cursor.close()
         return result
     except Exception as e:
+        print(f"Erro ao buscar avaliação: {e}")
         return None
+    finally:
+        if conn:
+            return_connection(conn)
+
+
+def salvar_avaliacao(processo_id, candidato_id, nota_final, avaliador, comentario, priorizacao):
+    """Salva uma nova avaliação no banco (apenas cabeçalho, sem critérios)"""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT INTO avaliacoes 
+            (processo_id, candidato_id, nota_final, avaliador, comentario_final, priorizacao, data)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            RETURNING id
+        """, (processo_id, candidato_id, nota_final, avaliador, comentario, priorizacao, datetime.now()))
+        
+        avaliacao_id = cursor.fetchone()[0]
+        conn.commit()
+        cursor.close()
+        return avaliacao_id
+        
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"Erro ao salvar avaliação: {e}")
+        return None
+    finally:
+        if conn:
+            return_connection(conn)
+
+
+def salvar_criterios_avaliacao(avaliacao_id, bloco, criterio, nota, justificativa):
+    """Salva um critério de avaliação"""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            INSERT INTO avaliacoes_criterios (avaliacao_id, bloco, criterio, nota, justificativa)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (avaliacao_id, bloco, criterio, nota, justificativa))
+        
+        conn.commit()
+        cursor.close()
+        return True
+        
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"Erro ao salvar critério: {e}")
+        return False
+    finally:
+        if conn:
+            return_connection(conn)
+
+
+def get_avaliacao_info_completa(avaliacao_id):
+    """Get avaliação info with all fields"""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT a.nota_final, a.avaliador, a.comentario_final, a.data, 
+                   a.priorizacao, c.nome, c.email, c.greenhouse_id, p.nome
+            FROM avaliacoes a
+            JOIN candidatos c ON a.candidato_id = c.id
+            JOIN processos p ON a.processo_id = p.id
+            WHERE a.id = %s
+        """, (avaliacao_id,))
+        result = cursor.fetchone()
+        cursor.close()
+        return result
+    except Exception as e:
+        print(f"Erro ao buscar avaliação: {e}")
+        return None
+    finally:
+        if conn:
+            return_connection(conn)
+
+
+def get_avaliacao_criterios(avaliacao_id):
+    """Get criteria for an evaluation"""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT bloco, criterio, nota, justificativa 
+            FROM avaliacoes_criterios 
+            WHERE avaliacao_id = %s
+            ORDER BY bloco, criterio
+        """, (avaliacao_id,))
+        result = cursor.fetchall()
+        cursor.close()
+        return result
+    except Exception as e:
+        print(f"Erro ao buscar critérios: {e}")
+        return []
+    finally:
+        if conn:
+            return_connection(conn)
+
+
+# ===== FUNÇÕES DE ESTATÍSTICAS =====
+
+def get_estatisticas_gerais():
+    """Busca estatísticas gerais do sistema"""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT 
+                (SELECT COUNT(*) FROM processos) as total_processos,
+                (SELECT COUNT(*) FROM candidatos) as total_candidatos,
+                (SELECT COUNT(*) FROM avaliacoes) as total_avaliacoes,
+                (SELECT COUNT(*) FROM candidatos WHERE gh_atualizada = true) as gh_atualizados,
+                (SELECT COUNT(*) FROM allowed_emails) as total_usuarios
+        """)
+        result = cursor.fetchone()
+        cursor.close()
+        return result
+    except Exception as e:
+        print(f"Erro ao buscar estatísticas: {e}")
+        return (0, 0, 0, 0, 0)
+    finally:
+        if conn:
+            return_connection(conn)
+
+
+def get_avaliacoes_recentes(limite=10):
+    """Busca avaliações recentes"""
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            SELECT 
+                a.data,
+                p.nome as processo,
+                c.nome as candidato,
+                a.nota_final,
+                a.avaliador,
+                c.gh_atualizada
+            FROM avaliacoes a
+            JOIN processos p ON a.processo_id = p.id
+            JOIN candidatos c ON a.candidato_id = c.id
+            ORDER BY a.data DESC
+            LIMIT %s
+        """, (limite,))
+        
+        result = cursor.fetchall()
+        cursor.close()
+        return result
+    except Exception as e:
+        print(f"Erro ao buscar avaliações recentes: {e}")
+        return []
     finally:
         if conn:
             return_connection(conn)

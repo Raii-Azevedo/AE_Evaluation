@@ -5,7 +5,11 @@ from datetime import datetime
 from database import (
     init_db, get_connection, return_connection,
     importar_candidatos_sheets, atualizar_gh_status,
-    get_candidatos_processo_completo, get_ultima_avaliacao_completa
+    get_candidatos_processo_completo, get_ultima_avaliacao_completa,
+    get_ou_criar_processo, get_processos_ativos, get_processo_info,
+    get_stats_processo, salvar_avaliacao, salvar_criterios_avaliacao,
+    get_avaliacao_info_completa, get_avaliacao_criterios,
+    get_estatisticas_gerais, get_avaliacoes_recentes
 )
 from criterios_areas import get_criterios_por_area, get_areas_disponiveis
 from allowed_emails import (
@@ -15,6 +19,7 @@ from allowed_emails import (
 import gspread
 from google.oauth2.service_account import Credentials
 from functools import wraps
+
 
 # ===== PAGE CONFIG =====
 st.set_page_config(
