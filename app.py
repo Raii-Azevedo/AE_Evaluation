@@ -885,40 +885,19 @@ else:
     show_notifications()
     
     if st.session_state.user_role == "admin":
-        if st.session_state.admin_view == "emails":
-            admin_manage_emails()
-        elif st.session_state.admin_view == "relatórios":
-            admin_relatorios()
+        # Verifica se admin está navegando em um processo
+        if st.session_state.view == "processo" or st.session_state.view == "avaliar" or st.session_state.view == "detalhe_avaliacao":
+            # Usa a mesma lógica de navegação dos usuários normais (pula para baixo)
+            pass
         else:
-            admin_dashboard()
-        
-        st.markdown("""
-        <h1 style="text-align:center; font-size:48px; font-weight:700; background: linear-gradient(90deg, #60A5FA, #A78BFA, #F472B6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
-            SISTEMA DE AVALIAÇÃO TÉCNICA
-        </h1>
-        """, unsafe_allow_html=True)
-        st.divider()
-        st.markdown("### 📋 Processos Disponíveis")
-        
-        processos = get_processos_ativos()
-        if not processos:
-            st.info("✨ Nenhum processo encontrado. Clique em 'Sincronizar' no dashboard.")
-        else:
-            for proc in processos:
-                id_p, nome, job_title, admission_category = proc
-                st.markdown(f"""
-                <div class="card">
-                    <h3>{nome}</h3>
-                    <p><strong>Job Title:</strong> {job_title} • <strong>Categoria:</strong> {admission_category}</p>
-                </div>
-                """, unsafe_allow_html=True)
-                if st.button("📂 Entrar", key=f"entrar_admin_{id_p}", use_container_width=True):
-                    st.session_state.processo_id = id_p
-                    st.session_state.view = "processo"
-                    st.rerun()
-    
-    else:
-        if st.session_state.view == "home":
+            # Mostra dashboard admin apenas quando não está em uma view de processo
+            if st.session_state.admin_view == "emails":
+                admin_manage_emails()
+            elif st.session_state.admin_view == "relatórios":
+                admin_relatorios()
+            else:
+                admin_dashboard()
+            
             st.markdown("""
             <h1 style="text-align:center; font-size:48px; font-weight:700; background: linear-gradient(90deg, #60A5FA, #A78BFA, #F472B6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
                 SISTEMA DE AVALIAÇÃO TÉCNICA
@@ -929,7 +908,7 @@ else:
             
             processos = get_processos_ativos()
             if not processos:
-                st.info("✨ Nenhum processo encontrado.")
+                st.info("✨ Nenhum processo encontrado. Clique em 'Sincronizar' no dashboard.")
             else:
                 for proc in processos:
                     id_p, nome, job_title, admission_category = proc
@@ -939,16 +918,43 @@ else:
                         <p><strong>Job Title:</strong> {job_title} • <strong>Categoria:</strong> {admission_category}</p>
                     </div>
                     """, unsafe_allow_html=True)
-                    if st.button("📂 Entrar", key=f"entrar_user_{id_p}", use_container_width=True):
+                    if st.button("📂 Entrar", key=f"entrar_admin_{id_p}", use_container_width=True):
                         st.session_state.processo_id = id_p
                         st.session_state.view = "processo"
                         st.rerun()
+    
+    # Lógica de navegação compartilhada para admin e usuários normais
+    if st.session_state.view == "home" and st.session_state.user_role != "admin":
+        st.markdown("""
+        <h1 style="text-align:center; font-size:48px; font-weight:700; background: linear-gradient(90deg, #60A5FA, #A78BFA, #F472B6); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+            SISTEMA DE AVALIAÇÃO TÉCNICA
+        </h1>
+        """, unsafe_allow_html=True)
+        st.divider()
+        st.markdown("### 📋 Processos Disponíveis")
         
-        elif st.session_state.view == "processo":
-            processo_id = st.session_state.processo_id
-            processo_info = get_processo_info(processo_id)
-            
-            if processo_info:
+        processos = get_processos_ativos()
+        if not processos:
+            st.info("✨ Nenhum processo encontrado.")
+        else:
+            for proc in processos:
+                id_p, nome, job_title, admission_category = proc
+                st.markdown(f"""
+                <div class="card">
+                    <h3>{nome}</h3>
+                    <p><strong>Job Title:</strong> {job_title} • <strong>Categoria:</strong> {admission_category}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                if st.button("📂 Entrar", key=f"entrar_user_{id_p}", use_container_width=True):
+                    st.session_state.processo_id = id_p
+                    st.session_state.view = "processo"
+                    st.rerun()
+    
+    elif st.session_state.view == "processo":
+        processo_id = st.session_state.processo_id
+        processo_info = get_processo_info(processo_id)
+        
+        if processo_info:
                 if len(processo_info) == 4:
                     nome_processo, job_title, admission_category, status = processo_info
                 else:
@@ -1086,94 +1092,94 @@ else:
                                     add_notification(f"Status Greenhouse atualizado para {nome}", "success")
                                     st.rerun()
                     st.markdown("---")
-            else:
-                st.error("Processo não encontrado")
-                if st.button("Voltar para Home"):
-                    st.session_state.view = "home"
-                    st.session_state.processo_id = None
-                    st.rerun()
-        
-        elif st.session_state.view == "avaliar":
-            if not can_edit(st.session_state.user_email):
-                st.error("❌ Você não tem permissão para avaliar candidatos")
-                if st.button("← Voltar"):
-                    st.session_state.view = "processo"
-                    st.rerun()
-            else:
-                aplicacao_id = st.session_state.aplicacao_id
-                processo_id = st.session_state.processo_id
-                
-                if st.button("← Voltar para lista de candidatos"):
-                    st.session_state.view = "processo"
-                    st.rerun()
-                
-                app_info = get_aplicacao_info(aplicacao_id)
-                if app_info:
-                    _, _, nome, email, linkedin, gh_id, pbix, opt, ts = app_info
-                    processo_info = get_processo_info(processo_id)
-                    if processo_info:
-                        nome_processo = processo_info[0] if processo_info else "Processo"
-                        st.title(f"📝 Avaliar: {nome}")
-                        evaluation_form(aplicacao_id, nome, email, linkedin, gh_id, pbix, opt, nome_processo, "Analytics Engineer")
-        
-        elif st.session_state.view == "detalhe_avaliacao":
-            avaliacao_id = st.session_state.avaliacao_id
+        else:
+            st.error("Processo não encontrado")
+            if st.button("Voltar para Home"):
+                st.session_state.view = "home"
+                st.session_state.processo_id = None
+                st.rerun()
+    
+    elif st.session_state.view == "avaliar":
+        if not can_edit(st.session_state.user_email):
+            st.error("❌ Você não tem permissão para avaliar candidatos")
             if st.button("← Voltar"):
                 st.session_state.view = "processo"
                 st.rerun()
+        else:
+            aplicacao_id = st.session_state.aplicacao_id
+            processo_id = st.session_state.processo_id
             
-            avaliacao = get_avaliacao_completa(avaliacao_id)
-            if avaliacao:
-                nota_final, avaliador, comentario, data_avaliacao, priorizacao, gh_atualizada, nome, email, linkedin, gh_id, pbix, opt, timestamp, processo_nome = avaliacao
-                
-                st.title(f"🔍 Detalhe da Avaliação")
-                col1, col2 = st.columns(2)
-                with col1:
-                    if nota_final >= 8:
-                        st.metric("Nota Final", f"{nota_final:.1f}", delta="Aprovado")
-                    elif nota_final >= 6:
-                        st.metric("Nota Final", f"{nota_final:.1f}", delta="Em análise")
+            if st.button("← Voltar para lista de candidatos"):
+                st.session_state.view = "processo"
+                st.rerun()
+            
+            app_info = get_aplicacao_info(aplicacao_id)
+            if app_info:
+                _, _, nome, email, linkedin, gh_id, pbix, opt, ts = app_info
+                processo_info = get_processo_info(processo_id)
+                if processo_info:
+                    nome_processo = processo_info[0] if processo_info else "Processo"
+                    st.title(f"📝 Avaliar: {nome}")
+                    evaluation_form(aplicacao_id, nome, email, linkedin, gh_id, pbix, opt, nome_processo, "Analytics Engineer")
+    
+    elif st.session_state.view == "detalhe_avaliacao":
+        avaliacao_id = st.session_state.avaliacao_id
+        if st.button("← Voltar"):
+            st.session_state.view = "processo"
+            st.rerun()
+        
+        avaliacao = get_avaliacao_completa(avaliacao_id)
+        if avaliacao:
+            nota_final, avaliador, comentario, data_avaliacao, priorizacao, gh_atualizada, nome, email, linkedin, gh_id, pbix, opt, timestamp, processo_nome = avaliacao
+            
+            st.title(f"🔍 Detalhe da Avaliação")
+            col1, col2 = st.columns(2)
+            with col1:
+                if nota_final >= 8:
+                    st.metric("Nota Final", f"{nota_final:.1f}", delta="Aprovado")
+                elif nota_final >= 6:
+                    st.metric("Nota Final", f"{nota_final:.1f}", delta="Em análise")
+                else:
+                    st.metric("Nota Final", f"{nota_final:.1f}", delta="Reprovado")
+            with col2:
+                st.metric("Avaliador", extract_name_from_email(avaliador))
+            
+            data_av_str = data_avaliacao.strftime('%d/%m/%Y %H:%M') if data_avaliacao else "Data não registrada"
+            ts_str = timestamp.strftime('%d/%m/%Y %H:%M') if timestamp else "Data não informada"
+            
+            st.write(f"**Candidato:** {nome} ({email})")
+            st.write(f"**Processo:** {processo_nome}")
+            st.write(f"**Data da Avaliação:** {data_av_str}")
+            st.write(f"**Data da Aplicação:** {ts_str}")
+            st.write(f"**Priorização:** {priorizacao if priorizacao else 'Não priorizar'}")
+            st.write(f"**GH Atualizado:** {'✅ Sim' if gh_atualizada else '❌ Não'}")
+            
+            if linkedin: st.markdown(f"🔗 [LinkedIn]({linkedin})")
+            if gh_id: st.markdown(f"🏢 [Greenhouse]({gh_id})")
+            if pbix: st.markdown(f"📊 [Arquivo PBIX]({pbix})")
+            if opt: st.markdown(f"📁 [Arquivo Opcional]({opt})")
+            
+            st.divider()
+            st.subheader("💬 Comentário Geral")
+            st.write(comentario)
+            
+            st.divider()
+            st.subheader("📊 Avaliação por Critério")
+            
+            criterios = get_criterios_avaliacao(avaliacao_id)
+            current_bloco = None
+            for bloco, criterio, nota, just in criterios:
+                if bloco != current_bloco:
+                    current_bloco = bloco
+                    st.markdown(f"### {bloco}")
+                with st.expander(f"{criterio} - Nota: {nota:.1f}"):
+                    st.write(f"**Nota:** {nota:.1f}")
+                    if nota >= 8:
+                        st.success("✅ Excelente")
+                    elif nota >= 6:
+                        st.warning("⚠️ Bom")
                     else:
-                        st.metric("Nota Final", f"{nota_final:.1f}", delta="Reprovado")
-                with col2:
-                    st.metric("Avaliador", extract_name_from_email(avaliador))
-                
-                data_av_str = data_avaliacao.strftime('%d/%m/%Y %H:%M') if data_avaliacao else "Data não registrada"
-                ts_str = timestamp.strftime('%d/%m/%Y %H:%M') if timestamp else "Data não informada"
-                
-                st.write(f"**Candidato:** {nome} ({email})")
-                st.write(f"**Processo:** {processo_nome}")
-                st.write(f"**Data da Avaliação:** {data_av_str}")
-                st.write(f"**Data da Aplicação:** {ts_str}")
-                st.write(f"**Priorização:** {priorizacao if priorizacao else 'Não priorizar'}")
-                st.write(f"**GH Atualizado:** {'✅ Sim' if gh_atualizada else '❌ Não'}")
-                
-                if linkedin: st.markdown(f"🔗 [LinkedIn]({linkedin})")
-                if gh_id: st.markdown(f"🏢 [Greenhouse]({gh_id})")
-                if pbix: st.markdown(f"📊 [Arquivo PBIX]({pbix})")
-                if opt: st.markdown(f"📁 [Arquivo Opcional]({opt})")
-                
-                st.divider()
-                st.subheader("💬 Comentário Geral")
-                st.write(comentario)
-                
-                st.divider()
-                st.subheader("📊 Avaliação por Critério")
-                
-                criterios = get_criterios_avaliacao(avaliacao_id)
-                current_bloco = None
-                for bloco, criterio, nota, just in criterios:
-                    if bloco != current_bloco:
-                        current_bloco = bloco
-                        st.markdown(f"### {bloco}")
-                    with st.expander(f"{criterio} - Nota: {nota:.1f}"):
-                        st.write(f"**Nota:** {nota:.1f}")
-                        if nota >= 8:
-                            st.success("✅ Excelente")
-                        elif nota >= 6:
-                            st.warning("⚠️ Bom")
-                        else:
-                            st.error("❌ Precisa melhorar")
-                        if just:
-                            st.write("**Justificativa:**")
-                            st.write(just)
+                        st.error("❌ Precisa melhorar")
+                    if just:
+                        st.write("**Justificativa:**")
+                        st.write(just)
