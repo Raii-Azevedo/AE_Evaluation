@@ -478,6 +478,11 @@ def executar_importacao():
     st.write("### 🚀 Iniciando importação...")
     st.write(f"📋 Total de candidatos a processar: {len(candidatos)}")
     
+    # DEBUG: Mostrar os candidatos que serão importados
+    st.write("### 📋 CANDIDATOS A SEREM IMPORTADOS:")
+    for c in candidatos:
+        st.write(f"   - {c['nome']} ({c['email']}) -> Processo: {c['job_title']} - {c['admission_category']}")
+    
     processos_data = {}
     for c in candidatos:
         chave = f"{c['job_title']}||{c['admission_category']}"
@@ -506,7 +511,14 @@ def executar_importacao():
     for idx, (chave, processo) in enumerate(processos_data.items()):
         status_text.text(f"Processando: {processo['nome']}...")
         
+        st.write(f"### 🔄 Processando: {processo['nome']}")
+        st.write(f"   Job Title: '{processo['job_title']}'")
+        st.write(f"   Admission Category: '{processo['admission_category']}'")
+        st.write(f"   Candidatos: {len(processo['candidatos'])}")
+        
         processo_id = get_ou_criar_processo(processo['nome'], processo['job_title'], processo['admission_category'])
+        
+        st.write(f"   Processo ID obtido: {processo_id}")
         
         if processo_id:
             processos_criados += 1
@@ -514,13 +526,13 @@ def executar_importacao():
             
             resultado = importar_candidatos_sheets(processo['candidatos'], processo_id, st.session_state.user_email)
             
+            st.write(f"   Resultado da importação: {resultado}")
+            
             if resultado.get('sucesso'):
                 novas = resultado.get('novas_aplicacoes', 0)
                 total_importados += novas
                 st.success(f"   ✅ {novas} novas aplicações criadas")
-                st.write(f"   📊 Detalhes: {resultado.get('novos_candidatos', 0)} novos candidatos, "
-                        f"{resultado.get('candidatos_existentes', 0)} candidatos existentes, "
-                        f"{resultado.get('aplicacoes_existentes', 0)} aplicações já existentes")
+                st.write(f"   📊 Detalhes: {resultado}")
             else:
                 st.error(f"   ❌ Erro: {resultado.get('erro', 'Erro desconhecido')}")
         else:
@@ -544,7 +556,7 @@ def executar_importacao():
             st.rerun()
         return True
     else:
-        st.warning("⚠️ Nenhuma nova aplicação foi importada (já existiam no sistema).")
+        st.warning("⚠️ Nenhuma nova aplicação foi importada.")
         st.session_state.executar_importacao = False
         return False
 
