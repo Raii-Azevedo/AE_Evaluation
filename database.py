@@ -320,6 +320,8 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
         
         novos_candidatos = 0
         novas_aplicacoes = 0
+        aplicacoes_atualizadas = 0
+        candidatos_atualizados = 0
         candidatos_ignorados = 0
         
         for candidato in dados_candidatos:
@@ -330,7 +332,6 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
             timestamp_aplicacao_str = candidato.get('timestamp')
             priorizacao_sheets = candidato.get('priorizacao', '').strip()
             
-            # Log detalhado
             log_entry = {
                 'email': email,
                 'timestamp_original': timestamp_aplicacao_str,
@@ -338,22 +339,19 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
                 'status': 'processando'
             }
             
-            # REGRA 1: Converter e verificar se é de 2026
+            # REGRA 1: Extrair ano
             timestamp_aplicacao = None
             ano_aplicacao = None
             
             if timestamp_aplicacao_str:
                 try:
-                    # Extrair ano diretamente da string
                     if isinstance(timestamp_aplicacao_str, str):
-                        # Formato: "21/01/2026 20:08:01"
                         partes = timestamp_aplicacao_str.split('/')
                         if len(partes) >= 3:
                             ano_str = partes[2].split(' ')[0]
                             ano_aplicacao = int(ano_str)
                             log_entry['ano_extraido'] = ano_aplicacao
                             
-                            # Converter para datetime para usar depois
                             dia, mes, ano = partes[0], partes[1], ano_str
                             hora = partes[2].split(' ')[1] if len(partes[2].split(' ')) > 1 else "00:00:00"
                             data_formatada = f"{ano}-{mes}-{dia} {hora}"
@@ -362,21 +360,18 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
                     log_entry['erro_conversao'] = str(e)
                     ano_aplicacao = None
             
-            # Se não for 2026, ignora
             if ano_aplicacao != 2026:
                 log_entry['status'] = f'ignorado - ano {ano_aplicacao} não é 2026'
                 candidatos_ignorados += 1
                 resultados_detalhados.append(log_entry)
                 continue
             
-            # REGRA 2: Se já tem priorização preenchida, está avaliado - IGNORA
             if priorizacao_sheets and priorizacao_sheets not in ['', 'Não priorizar']:
                 log_entry['status'] = f'ignorado - já avaliado (priorização: {priorizacao_sheets})'
                 candidatos_ignorados += 1
                 resultados_detalhados.append(log_entry)
                 continue
             
-            # REGRA 3: É de 2026 e não tem priorização -> IMPORTAR
             log_entry['status'] = 'importando'
             
             greenhouse_id = candidato.get('greenhouse_id', '').strip()
@@ -406,10 +401,11 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
                     SET nome = %s, linkedin = %s
                     WHERE id = %s
                 """, (nome, linkedin, candidato_id))
+                candidatos_atualizados += 1
                 log_entry['candidato_id'] = candidato_id
-                log_entry['acao'] = 'atualizado'
+                log_entry['acao'] = 'candidato_atualizado'
             
-            # Verificar se já existe aplicação
+            # Verificar se já existe aplicação para este candidato em 2026 neste processo
             cursor.execute("""
                 SELECT id FROM aplicacoes 
                 WHERE candidato_id = %s AND processo_id = %s 
@@ -428,15 +424,17 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
                 aplicacao_id = cursor.fetchone()[0]
                 novas_aplicacoes += 1
                 log_entry['aplicacao_id'] = aplicacao_id
-                log_entry['acao_aplicacao'] = 'nova'
+                log_entry['acao_aplicacao'] = 'nova_aplicacao'
             else:
+                # Atualizar dados da aplicação existente
                 cursor.execute("""
                     UPDATE aplicacoes 
                     SET greenhouse_id = %s, pbix_file = %s, optional_file = %s
                     WHERE id = %s
                 """, (greenhouse_id, pbix_file, optional_file, aplicacao_existente[0]))
+                aplicacoes_atualizadas += 1
                 log_entry['aplicacao_id'] = aplicacao_existente[0]
-                log_entry['acao_aplicacao'] = 'atualizada'
+                log_entry['acao_aplicacao'] = 'aplicacao_atualizada'
             
             log_entry['status'] = 'importado_com_sucesso'
             resultados_detalhados.append(log_entry)
@@ -444,17 +442,30 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
         conn.commit()
         cursor.close()
         
-        # Mostrar resultados detalhados no Streamlit
+        # Mostrar resultados detalhados
         st.write("### 📋 Detalhes da importação:")
         for r in resultados_detalhados:
-            st.write(f"- {r['email']}: {r['status']}")
+            st.write(f"- **{r['email']}**: {r['status']}")
             if r.get('ano_extraido'):
-                st.write(f"  Ano extraído: {r['ano_extraido']}")
+                st.write(f"  - Ano: {r['ano_extraido']}")
+            if r.get('acao_aplicacao'):
+                st.write(f"  - Ação: {r['acao_aplicacao']}")
+        
+        st.write(f"""
+        ### 📊 Resumo:
+        - Novos candidatos: {novos_candidatos}
+        - Candidatos atualizados: {candidatos_atualizados}
+        - Novas aplicações: {novas_aplicacoes}
+        - Aplicações atualizadas: {aplicacoes_atualizadas}
+        - Ignorados: {candidatos_ignorados}
+        """)
         
         return {
             'sucesso': True,
             'novos_candidatos': novos_candidatos,
+            'candidatos_atualizados': candidatos_atualizados,
             'novas_aplicacoes': novas_aplicacoes,
+            'aplicacoes_atualizadas': aplicacoes_atualizadas,
             'candidatos_ignorados': candidatos_ignorados,
             'total_processados': len(dados_candidatos),
             'detalhes': resultados_detalhados
