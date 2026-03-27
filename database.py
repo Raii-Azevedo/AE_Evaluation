@@ -321,6 +321,7 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
                 """, (nome, email, linkedin))
                 candidato_id = cursor.fetchone()[0]
                 novos_candidatos += 1
+                print(f"✅ Novo candidato: {nome} ({email})")
             else:
                 candidato_id = existe[0]
                 # Atualizar dados demográficos
@@ -329,8 +330,9 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
                     SET nome = %s, linkedin = %s
                     WHERE id = %s
                 """, (nome, linkedin, candidato_id))
+                print(f"📝 Candidato existente atualizado: {nome} ({email})")
             
-            # Verificar se já existe aplicação para este candidato em 2026
+            # Verificar se já existe aplicação para este candidato em 2026 neste processo
             cursor.execute("""
                 SELECT id FROM aplicacoes 
                 WHERE candidato_id = %s AND processo_id = %s 
@@ -347,7 +349,9 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
                     VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING id
                 """, (candidato_id, processo_id, greenhouse_id, pbix_file, optional_file, timestamp_aplicacao))
+                aplicacao_id = cursor.fetchone()[0]
                 novas_aplicacoes += 1
+                print(f"  ✅ Nova aplicação criada (ID: {aplicacao_id})")
             else:
                 # Atualizar dados da aplicação existente
                 cursor.execute("""
@@ -355,6 +359,7 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
                     SET greenhouse_id = %s, pbix_file = %s, optional_file = %s
                     WHERE id = %s
                 """, (greenhouse_id, pbix_file, optional_file, aplicacao_existente[0]))
+                print(f"  📝 Aplicação existente atualizada (ID: {aplicacao_existente[0]})")
         
         conn.commit()
         
@@ -389,7 +394,6 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
     finally:
         if conn:
             return_connection(conn)
-
 
 # ===== FUNÇÕES DE APLICAÇÕES =====
 
