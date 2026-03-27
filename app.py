@@ -169,6 +169,12 @@ def sincronizar_dados_google_sheets():
         st.error("❌ Não foi possível carregar dados do Google Sheets")
         return False
     
+    # DEBUG: Mostrar primeiras linhas
+    with st.expander("🔍 Debug - Dados carregados"):
+        st.write(f"Total de registros: {len(dados)}")
+        st.write("Colunas disponíveis:", list(dados[0].keys()) if dados else [])
+        st.dataframe(pd.DataFrame(dados[:3]))
+    
     # Analisar dados
     total_linhas = len(dados)
     candidatos_2026 = 0
@@ -181,17 +187,30 @@ def sincronizar_dados_google_sheets():
         job_title = linha.get('Job title', '').strip()
         admission_category = linha.get('Admission Category', '').strip()
         
+        # DEBUG
+        st.write(f"Processando: {timestamp} | {job_title} | {admission_category}")
+        
         ano = None
         if timestamp:
             try:
-                ano = int(str(timestamp).split('/')[2].split(' ')[0])
-            except:
-                pass
+                # Tentar extrair ano do timestamp
+                if isinstance(timestamp, str):
+                    # Formato: "21/01/2026 20:08:01"
+                    partes = timestamp.split('/')
+                    if len(partes) >= 3:
+                        ano = int(partes[2].split(' ')[0])
+                elif isinstance(timestamp, datetime):
+                    ano = timestamp.year
+            except Exception as e:
+                st.write(f"Erro ao extrair ano: {e}")
+        
+        st.write(f"  Ano extraído: {ano}")
         
         if ano == 2026:
             candidatos_2026 += 1
             if priorizacao and priorizacao not in ['', 'Não priorizar']:
                 candidatos_com_priorizacao += 1
+                st.write(f"  ⏭️ Ignorado (já avaliado): {priorizacao}")
             else:
                 # Este candidato deve ser importado
                 if job_title and admission_category:
@@ -207,6 +226,11 @@ def sincronizar_dados_google_sheets():
                         'admission_category': admission_category,
                         'priorizacao': priorizacao
                     })
+                    st.write(f"  ✅ Será importado: {job_title} - {admission_category}")
+                else:
+                    st.write(f"  ⚠️ Ignorado: job_title ou admission_category vazio")
+        else:
+            st.write(f"  ⏭️ Ignorado (não é 2026): {ano}")
     
     # Mostrar análise
     st.info(f"""
@@ -218,8 +242,8 @@ def sincronizar_dados_google_sheets():
     """)
     
     if len(candidatos_para_importar) == 0:
-        st.success("✅ Não há novos candidatos para importar!")
-        return True
+        st.warning("⚠️ Nenhum candidato para importar. Verifique se os dados estão no formato correto.")
+        return False
     
     # Mostrar preview dos candidatos a serem importados
     with st.expander("📋 Preview dos candidatos a serem importados", expanded=True):
@@ -262,6 +286,8 @@ def sincronizar_dados_google_sheets():
             for chave, processo in processos_data.items():
                 with progress_container:
                     st.write(f"📁 **Processando: {processo['nome']}**")
+                    st.write(f"   Job Title: '{processo['job_title']}'")
+                    st.write(f"   Admission Category: '{processo['admission_category']}'")
                 
                 # Criar ou obter processo
                 processo_id = get_ou_criar_processo(
@@ -272,6 +298,8 @@ def sincronizar_dados_google_sheets():
                 
                 if processo_id:
                     processos_criados += 1
+                    with progress_container:
+                        st.write(f"   ✅ Processo ID: {processo_id}")
                     
                     # Importar candidatos
                     resultado = importar_candidatos_sheets(
@@ -283,10 +311,13 @@ def sincronizar_dados_google_sheets():
                     if resultado.get('sucesso'):
                         total_importados += resultado.get('novas_aplicacoes', 0)
                         with progress_container:
-                            st.success(f"  ✅ {resultado.get('novas_aplicacoes', 0)} candidatos importados")
+                            st.success(f"   ✅ {resultado.get('novas_aplicacoes', 0)} candidatos importados")
                     else:
                         with progress_container:
-                            st.error(f"  ❌ Erro: {resultado.get('erro', 'Erro desconhecido')}")
+                            st.error(f"   ❌ Erro: {resultado.get('erro', 'Erro desconhecido')}")
+                else:
+                    with progress_container:
+                        st.error(f"   ❌ Falha ao criar/obter processo")
             
             if total_importados > 0:
                 st.success(f"""
@@ -305,7 +336,6 @@ def sincronizar_dados_google_sheets():
                 return False
     
     return False
-
 
 # ===== STYLES =====
 def get_styles(dark_mode=False):
@@ -528,6 +558,25 @@ def admin_manage_emails():
 
 def admin_dashboard():
     st.title("📊 Dashboard Administrativo")
+    
+    # Botão de debug para testar a leitura do Sheets
+    with st.expander("🔧 Debug - Ver dados do Google Sheets"):
+        if st.button("Carregar e mostrar dados brutos"):
+            dados = carregar_google_sheets()
+            if dados:
+                st.write(f"Total de linhas: {len(dados)}")
+                st.dataframe(pd.DataFrame(dados[:5]))
+                
+                # Mostrar colunas disponíveis
+                st.write("Colunas encontradas:", list(dados[0].keys()) if dados else [])
+                
+                # Analisar Job Titles
+                job_titles = set()
+                for linha in dados:
+                    job_title = linha.get('Job title', '')
+                    if job_title:
+                        job_titles.add(job_title)
+                st.write("Job Titles encontrados:", job_titles)
     
     try:
         stats = get_estatisticas_gerais()

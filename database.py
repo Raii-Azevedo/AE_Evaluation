@@ -181,6 +181,9 @@ def get_ou_criar_processo(nome_processo, job_title, admission_category):
         conn = get_connection()
         cursor = conn.cursor()
         
+        print(f"🔍 Buscando processo: job_title='{job_title}', admission_category='{admission_category}'")
+        
+        # Buscar processo existente
         cursor.execute("""
             SELECT id FROM processos 
             WHERE job_title = %s AND admission_category = %s
@@ -190,20 +193,25 @@ def get_ou_criar_processo(nome_processo, job_title, admission_category):
         
         if result:
             processo_id = result[0]
+            print(f"✅ Processo encontrado: ID {processo_id}")
         else:
+            # Criar novo processo
+            print(f"🆕 Criando novo processo: {nome_processo}")
             cursor.execute("""
                 INSERT INTO processos (nome, job_title, admission_category)
                 VALUES (%s, %s, %s)
                 RETURNING id
             """, (nome_processo, job_title, admission_category))
+            
             processo_id = cursor.fetchone()[0]
             conn.commit()
+            print(f"✅ Processo criado com ID {processo_id}")
         
         cursor.close()
         return processo_id
         
     except Exception as e:
-        print(f"Erro em get_ou_criar_processo: {e}")
+        print(f"❌ Erro em get_ou_criar_processo: {e}")
         return None
     finally:
         if conn:
