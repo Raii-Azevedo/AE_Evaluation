@@ -656,6 +656,11 @@ def executar_importacao():
     
     st.write("### 🚀 Iniciando importação...")
     
+    # DEBUG: Mostrar os candidatos que serão importados
+    st.write("### 📋 Candidatos a serem importados:")
+    for c in candidatos_para_importar:
+        st.write(f"- {c['nome']} ({c['email']}) - Job: {c['job_title']} - Cat: {c['admission_category']} - Timestamp: {c['timestamp']}")
+    
     # Agrupar por Job Title + Admission Category
     processos_data = {}
     for candidato in candidatos_para_importar:
@@ -694,6 +699,11 @@ def executar_importacao():
     for idx, (chave, processo) in enumerate(processos_data.items()):
         status_text.text(f"Processando: {processo['nome']}...")
         
+        # DEBUG: Mostrar os candidatos deste processo
+        st.write(f"### 📋 Candidatos do processo {processo['nome']}:")
+        for c in processo['candidatos']:
+            st.write(f"   - {c['nome']} ({c['email']}) - Timestamp: {c['timestamp']}")
+        
         # Criar ou obter processo
         processo_id = get_ou_criar_processo(
             processo['nome'],
@@ -716,6 +726,7 @@ def executar_importacao():
                 novas = resultado.get('novas_aplicacoes', 0)
                 total_importados += novas
                 st.success(f"   ✅ {novas} candidatos importados para este processo")
+                st.write(f"   Detalhes: {resultado}")
             else:
                 st.error(f"   ❌ Erro: {resultado.get('erro', 'Erro desconhecido')}")
         else:
@@ -743,7 +754,6 @@ def executar_importacao():
         st.warning("⚠️ Nenhum candidato foi importado.")
         st.session_state.executar_importacao = False
         return False
-
 
 def admin_relatorios():
     st.title("📈 Relatórios e Análises")
