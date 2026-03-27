@@ -194,6 +194,7 @@ def get_ou_criar_processo(nome_processo, job_title, admission_category):
         if result:
             processo_id = result[0]
             print(f"✅ Processo encontrado: ID {processo_id}")
+            return processo_id
         else:
             # Criar novo processo
             print(f"🆕 Criando novo processo: {nome_processo}")
@@ -206,17 +207,16 @@ def get_ou_criar_processo(nome_processo, job_title, admission_category):
             processo_id = cursor.fetchone()[0]
             conn.commit()
             print(f"✅ Processo criado com ID {processo_id}")
-        
-        cursor.close()
-        return processo_id
+            return processo_id
         
     except Exception as e:
         print(f"❌ Erro em get_ou_criar_processo: {e}")
+        import traceback
+        traceback.print_exc()
         return None
     finally:
         if conn:
             return_connection(conn)
-
 
 def get_processos_ativos():
     """Busca todos os processos"""
