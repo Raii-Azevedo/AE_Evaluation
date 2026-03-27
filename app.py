@@ -169,12 +169,6 @@ def sincronizar_dados_google_sheets():
         st.error("❌ Não foi possível carregar dados do Google Sheets")
         return False
     
-    # DEBUG: Mostrar primeiras linhas
-    with st.expander("🔍 Debug - Dados carregados"):
-        st.write(f"Total de registros: {len(dados)}")
-        st.write("Colunas disponíveis:", list(dados[0].keys()) if dados else [])
-        st.dataframe(pd.DataFrame(dados[:3]))
-    
     # Analisar dados
     total_linhas = len(dados)
     candidatos_2026 = 0
@@ -187,32 +181,23 @@ def sincronizar_dados_google_sheets():
         job_title = linha.get('Job title', '').strip()
         admission_category = linha.get('Admission Category', '').strip()
         
-        # DEBUG
-        st.write(f"Processando: {timestamp} | {job_title} | {admission_category}")
-        
         ano = None
         if timestamp:
             try:
-                # Tentar extrair ano do timestamp
                 if isinstance(timestamp, str):
-                    # Formato: "21/01/2026 20:08:01"
                     partes = timestamp.split('/')
                     if len(partes) >= 3:
                         ano = int(partes[2].split(' ')[0])
                 elif isinstance(timestamp, datetime):
                     ano = timestamp.year
-            except Exception as e:
-                st.write(f"Erro ao extrair ano: {e}")
-        
-        st.write(f"  Ano extraído: {ano}")
+            except:
+                pass
         
         if ano == 2026:
             candidatos_2026 += 1
             if priorizacao and priorizacao not in ['', 'Não priorizar']:
                 candidatos_com_priorizacao += 1
-                st.write(f"  ⏭️ Ignorado (já avaliado): {priorizacao}")
             else:
-                # Este candidato deve ser importado
                 if job_title and admission_category:
                     candidatos_para_importar.append({
                         'timestamp': timestamp,
@@ -226,11 +211,6 @@ def sincronizar_dados_google_sheets():
                         'admission_category': admission_category,
                         'priorizacao': priorizacao
                     })
-                    st.write(f"  ✅ Será importado: {job_title} - {admission_category}")
-                else:
-                    st.write(f"  ⚠️ Ignorado: job_title ou admission_category vazio")
-        else:
-            st.write(f"  ⏭️ Ignorado (não é 2026): {ano}")
     
     # Mostrar análise
     st.info(f"""
@@ -242,98 +222,114 @@ def sincronizar_dados_google_sheets():
     """)
     
     if len(candidatos_para_importar) == 0:
-        st.warning("⚠️ Nenhum candidato para importar. Verifique se os dados estão no formato correto.")
+        st.warning("⚠️ Nenhum candidato para importar.")
         return False
     
-    # Mostrar preview dos candidatos a serem importados
+    # Mostrar preview
     with st.expander("📋 Preview dos candidatos a serem importados", expanded=True):
         preview_df = pd.DataFrame(candidatos_para_importar)
         st.dataframe(preview_df[['nome', 'email', 'job_title', 'admission_category']], use_container_width=True)
     
     # Botão para confirmar importação
     if st.button("✅ Confirmar Importação", type="primary", use_container_width=True):
-        with st.spinner("Importando candidatos..."):
-            # Agrupar por Job Title + Admission Category
-            processos_data = {}
-            for candidato in candidatos_para_importar:
-                chave = f"{candidato['job_title']}||{candidato['admission_category']}"
-                
-                if chave not in processos_data:
-                    processos_data[chave] = {
-                        'nome': f"{candidato['job_title']} - {candidato['admission_category']}",
-                        'job_title': candidato['job_title'],
-                        'admission_category': candidato['admission_category'],
-                        'candidatos': []
-                    }
-                
-                processos_data[chave]['candidatos'].append({
-                    'timestamp': candidato['timestamp'],
-                    'email': candidato['email'],
-                    'nome': candidato['nome'],
-                    'linkedin': candidato['linkedin'],
-                    'greenhouse_id': candidato['greenhouse_id'],
-                    'pbix_file': candidato['pbix_file'],
-                    'optional_file': candidato['optional_file'],
-                    'priorizacao': candidato['priorizacao']
-                })
+        
+        # Agrupar por Job Title + Admission Category
+        processos_data = {}
+        for candidato in candidatos_para_importar:
+            chave = f"{candidato['job_title']}||{candidato['admission_category']}"
             
-            total_importados = 0
-            processos_criados = 0
+            if chave not in processos_data:
+                processos_data[chave] = {
+                    'nome': f"{candidato['job_title']} - {candidato['admission_category']}",
+                    'job_title': candidato['job_title'],
+                    'admission_category': candidato['admission_category'],
+                    'candidatos': []
+                }
             
-            # Criar um container para mostrar o progresso
-            progress_container = st.container()
+            processos_data[chave]['candidatos'].append({
+                'timestamp': candidato['timestamp'],
+                'email': candidato['email'],
+                'nome': candidato['nome'],
+                'linkedin': candidato['linkedin'],
+                'greenhouse_id': candidato['greenhouse_id'],
+                'pbix_file': candidato['pbix_file'],
+                'optional_file': candidato['optional_file'],
+                'priorizacao': candidato['priorizacao']
+            })
+        
+        st.write("### 📋 Processos a serem criados/atualizados:")
+        for chave, processo in processos_data.items():
+            st.write(f"- **{processo['nome']}** ({len(processo['candidatos'])} candidatos)")
+        
+        total_importados = 0
+        processos_criados = 0
+        
+        # Barra de progresso
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        for idx, (chave, processo) in enumerate(processos_data.items()):
+            status_text.text(f"Processando: {processo['nome']}...")
             
-            for chave, processo in processos_data.items():
-                with progress_container:
-                    st.write(f"📁 **Processando: {processo['nome']}**")
-                    st.write(f"   Job Title: '{processo['job_title']}'")
-                    st.write(f"   Admission Category: '{processo['admission_category']}'")
+            # Criar ou obter processo
+            processo_id = get_ou_criar_processo(
+                processo['nome'],
+                processo['job_title'],
+                processo['admission_category']
+            )
+            
+            if processo_id:
+                processos_criados += 1
+                st.write(f"✅ Processo **{processo['nome']}** criado/obtido (ID: {processo_id})")
                 
-                # Criar ou obter processo
-                processo_id = get_ou_criar_processo(
-                    processo['nome'],
-                    processo['job_title'],
-                    processo['admission_category']
+                # Importar candidatos
+                resultado = importar_candidatos_sheets(
+                    processo['candidatos'],
+                    processo_id,
+                    st.session_state.user_email
                 )
                 
-                if processo_id:
-                    processos_criados += 1
-                    with progress_container:
-                        st.write(f"   ✅ Processo ID: {processo_id}")
+                if resultado.get('sucesso'):
+                    novas = resultado.get('novas_aplicacoes', 0)
+                    total_importados += novas
+                    st.success(f"   ✅ {novas} candidatos importados para este processo")
                     
-                    # Importar candidatos
-                    resultado = importar_candidatos_sheets(
-                        processo['candidatos'],
-                        processo_id,
-                        st.session_state.user_email
-                    )
-                    
-                    if resultado.get('sucesso'):
-                        total_importados += resultado.get('novas_aplicacoes', 0)
-                        with progress_container:
-                            st.success(f"   ✅ {resultado.get('novas_aplicacoes', 0)} candidatos importados")
-                    else:
-                        with progress_container:
-                            st.error(f"   ❌ Erro: {resultado.get('erro', 'Erro desconhecido')}")
+                    # Mostrar detalhes dos candidatos importados
+                    for c in processo['candidatos']:
+                        st.write(f"      - {c['nome']} ({c['email']})")
                 else:
-                    with progress_container:
-                        st.error(f"   ❌ Falha ao criar/obter processo")
-            
-            if total_importados > 0:
-                st.success(f"""
-                ✅ **Sincronização concluída!**
-                - Processos criados/atualizados: {processos_criados}
-                - Novas aplicações criadas: {total_importados}
-                """)
-                st.session_state.ultima_sincronizacao = datetime.now()
-                
-                # Botão para recarregar
-                if st.button("🔄 Recarregar página para ver os novos dados", use_container_width=True):
-                    st.rerun()
-                return True
+                    st.error(f"   ❌ Erro: {resultado.get('erro', 'Erro desconhecido')}")
             else:
-                st.warning("⚠️ Nenhum candidato foi importado.")
-                return False
+                st.error(f"❌ Falha ao criar/obter processo {processo['nome']}")
+            
+            # Atualizar progresso
+            progress_bar.progress((idx + 1) / len(processos_data))
+        
+        status_text.text("Importação concluída!")
+        
+        if total_importados > 0:
+            st.success(f"""
+            ✅ **Sincronização concluída!**
+            - Processos criados/atualizados: {processos_criados}
+            - Novas aplicações criadas: {total_importados}
+            """)
+            st.session_state.ultima_sincronizacao = datetime.now()
+            
+            # Verificar se os processos foram criados
+            st.write("### 🔍 Verificando processos criados:")
+            processos = get_processos_ativos()
+            if processos:
+                for p in processos:
+                    st.write(f"- {p[1]} (ID: {p[0]})")
+            else:
+                st.warning("⚠️ Nenhum processo encontrado após a importação!")
+            
+            if st.button("🔄 Recarregar página", use_container_width=True):
+                st.rerun()
+            return True
+        else:
+            st.warning("⚠️ Nenhum candidato foi importado.")
+            return False
     
     return False
 
@@ -559,24 +555,43 @@ def admin_manage_emails():
 def admin_dashboard():
     st.title("📊 Dashboard Administrativo")
     
-    # Botão de debug para testar a leitura do Sheets
-    with st.expander("🔧 Debug - Ver dados do Google Sheets"):
-        if st.button("Carregar e mostrar dados brutos"):
-            dados = carregar_google_sheets()
-            if dados:
-                st.write(f"Total de linhas: {len(dados)}")
-                st.dataframe(pd.DataFrame(dados[:5]))
+    # Botão para verificar tabelas
+    with st.expander("🔧 Manutenção do Banco"):
+        if st.button("Verificar tabelas do banco"):
+            conn = None
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT table_name 
+                    FROM information_schema.tables 
+                    WHERE table_schema = 'public'
+                    ORDER BY table_name
+                """)
+                tabelas = cursor.fetchall()
+                st.write("Tabelas existentes:")
+                for tabela in tabelas:
+                    st.write(f"- {tabela[0]}")
                 
-                # Mostrar colunas disponíveis
-                st.write("Colunas encontradas:", list(dados[0].keys()) if dados else [])
+                # Verificar processos
+                cursor.execute("SELECT COUNT(*) FROM processos")
+                count = cursor.fetchone()[0]
+                st.write(f"\nTotal de processos: {count}")
                 
-                # Analisar Job Titles
-                job_titles = set()
-                for linha in dados:
-                    job_title = linha.get('Job title', '')
-                    if job_title:
-                        job_titles.add(job_title)
-                st.write("Job Titles encontrados:", job_titles)
+                if count > 0:
+                    cursor.execute("SELECT id, nome, job_title, admission_category FROM processos")
+                    processos = cursor.fetchall()
+                    for p in processos:
+                        st.write(f"  ID: {p[0]}, Nome: {p[1]}, Job: {p[2]}, Cat: {p[3]}")
+                
+                cursor.close()
+            except Exception as e:
+                st.error(f"Erro: {e}")
+            finally:
+                if conn:
+                    return_connection(conn)
+    
+    # Resto do dashboard...
     
     try:
         stats = get_estatisticas_gerais()
