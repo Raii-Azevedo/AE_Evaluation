@@ -307,22 +307,18 @@ def get_processo_info(processo_id):
 
 def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
     """
-    Importa APENAS candidatos com:
-    - Timestamp em 2026
-    - Priorização em branco (não avaliados)
+    Importa candidatos do Google Sheets a partir da linha 353
+    Verifica se já existe aplicação com o mesmo timestamp para não duplicar
     """
     conn = None
-    resultados_detalhados = []
-    
     try:
         conn = get_connection()
         cursor = conn.cursor()
         
         novos_candidatos = 0
         novas_aplicacoes = 0
-        aplicacoes_atualizadas = 0
-        candidatos_atualizados = 0
-        candidatos_ignorados = 0
+        candidatos_existentes = 0
+        aplicacoes_existentes = 0
         
         for candidato in dados_candidatos:
             email = candidato.get('email', '').strip()
@@ -332,148 +328,95 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
             timestamp_aplicacao_str = candidato.get('timestamp')
             priorizacao_sheets = candidato.get('priorizacao', '').strip()
             
-            log_entry = {
-                'email': email,
-                'timestamp_original': timestamp_aplicacao_str,
-                'priorizacao': priorizacao_sheets,
-                'status': 'processando'
-            }
-            
-            # REGRA 1: Extrair ano
+            # Converter timestamp
             timestamp_aplicacao = None
-            ano_aplicacao = None
-            
             if timestamp_aplicacao_str:
                 try:
                     if isinstance(timestamp_aplicacao_str, str):
                         partes = timestamp_aplicacao_str.split('/')
                         if len(partes) >= 3:
                             ano_str = partes[2].split(' ')[0]
-                            ano_aplicacao = int(ano_str)
-                            log_entry['ano_extraido'] = ano_aplicacao
-                            
                             dia, mes, ano = partes[0], partes[1], ano_str
                             hora = partes[2].split(' ')[1] if len(partes[2].split(' ')) > 1 else "00:00:00"
                             data_formatada = f"{ano}-{mes}-{dia} {hora}"
                             timestamp_aplicacao = datetime.strptime(data_formatada, '%Y-%m-%d %H:%M:%S')
                 except Exception as e:
-                    log_entry['erro_conversao'] = str(e)
-                    ano_aplicacao = None
+                    print(f"Erro ao converter data: {e}")
+                    continue
             
-            if ano_aplicacao != 2026:
-                log_entry['status'] = f'ignorado - ano {ano_aplicacao} não é 2026'
-                candidatos_ignorados += 1
-                resultados_detalhados.append(log_entry)
-                continue
-            
-            if priorizacao_sheets and priorizacao_sheets not in ['', 'Não priorizar']:
-                log_entry['status'] = f'ignorado - já avaliado (priorização: {priorizacao_sheets})'
-                candidatos_ignorados += 1
-                resultados_detalhados.append(log_entry)
-                continue
-            
-            log_entry['status'] = 'importando'
-            
-            greenhouse_id = candidato.get('greenhouse_id', '').strip()
-            pbix_file = candidato.get('pbix_file', '').strip()
-            optional_file = candidato.get('optional_file', '').strip()
-            linkedin = candidato.get('linkedin', '').strip()
-            nome = candidato.get('nome', '').strip()
-            
-            # Buscar ou criar candidato
+            # Verificar se já existe candidato
             cursor.execute("SELECT id FROM candidatos WHERE email = %s", (email,))
             existe = cursor.fetchone()
             
             if not existe:
+                # Novo candidato
                 cursor.execute("""
                     INSERT INTO candidatos (nome, email, linkedin)
                     VALUES (%s, %s, %s)
                     RETURNING id
-                """, (nome, email, linkedin))
+                """, (candidato.get('nome', ''), email, candidato.get('linkedin', '')))
                 candidato_id = cursor.fetchone()[0]
                 novos_candidatos += 1
-                log_entry['candidato_id'] = candidato_id
-                log_entry['acao'] = 'novo_candidato'
             else:
                 candidato_id = existe[0]
+                candidatos_existentes += 1
+            
+            # Verificar se já existe aplicação para este candidato com o mesmo timestamp
+            if timestamp_aplicacao:
                 cursor.execute("""
-                    UPDATE candidatos 
-                    SET nome = %s, linkedin = %s
-                    WHERE id = %s
-                """, (nome, linkedin, candidato_id))
-                candidatos_atualizados += 1
-                log_entry['candidato_id'] = candidato_id
-                log_entry['acao'] = 'candidato_atualizado'
-            
-            # Verificar se já existe aplicação para este candidato em 2026 neste processo
-            cursor.execute("""
-                SELECT id FROM aplicacoes 
-                WHERE candidato_id = %s AND processo_id = %s 
-                AND EXTRACT(YEAR FROM timestamp_aplicacao) = 2026
-            """, (candidato_id, processo_id))
-            
-            aplicacao_existente = cursor.fetchone()
-            
-            if not aplicacao_existente:
+                    SELECT id FROM aplicacoes 
+                    WHERE candidato_id = %s AND processo_id = %s AND timestamp_aplicacao = %s
+                """, (candidato_id, processo_id, timestamp_aplicacao))
+                
+                aplicacao_existente = cursor.fetchone()
+                
+                if not aplicacao_existente:
+                    # Nova aplicação
+                    cursor.execute("""
+                        INSERT INTO aplicacoes 
+                        (candidato_id, processo_id, greenhouse_id, pbix_file, optional_file, timestamp_aplicacao)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        RETURNING id
+                    """, (candidato_id, processo_id, 
+                          candidato.get('greenhouse_id', ''), 
+                          candidato.get('pbix_file', ''), 
+                          candidato.get('optional_file', ''), 
+                          timestamp_aplicacao))
+                    novas_aplicacoes += 1
+                else:
+                    aplicacoes_existentes += 1
+            else:
+                # Se não tem timestamp, criar mesmo assim
                 cursor.execute("""
                     INSERT INTO aplicacoes 
                     (candidato_id, processo_id, greenhouse_id, pbix_file, optional_file, timestamp_aplicacao)
                     VALUES (%s, %s, %s, %s, %s, %s)
                     RETURNING id
-                """, (candidato_id, processo_id, greenhouse_id, pbix_file, optional_file, timestamp_aplicacao))
-                aplicacao_id = cursor.fetchone()[0]
+                """, (candidato_id, processo_id, 
+                      candidato.get('greenhouse_id', ''), 
+                      candidato.get('pbix_file', ''), 
+                      candidato.get('optional_file', ''), 
+                      timestamp_aplicacao))
                 novas_aplicacoes += 1
-                log_entry['aplicacao_id'] = aplicacao_id
-                log_entry['acao_aplicacao'] = 'nova_aplicacao'
-            else:
-                # Atualizar dados da aplicação existente
-                cursor.execute("""
-                    UPDATE aplicacoes 
-                    SET greenhouse_id = %s, pbix_file = %s, optional_file = %s
-                    WHERE id = %s
-                """, (greenhouse_id, pbix_file, optional_file, aplicacao_existente[0]))
-                aplicacoes_atualizadas += 1
-                log_entry['aplicacao_id'] = aplicacao_existente[0]
-                log_entry['acao_aplicacao'] = 'aplicacao_atualizada'
-            
-            log_entry['status'] = 'importado_com_sucesso'
-            resultados_detalhados.append(log_entry)
         
         conn.commit()
         cursor.close()
         
-        # Mostrar resultados detalhados
-        st.write("### 📋 Detalhes da importação:")
-        for r in resultados_detalhados:
-            st.write(f"- **{r['email']}**: {r['status']}")
-            if r.get('ano_extraido'):
-                st.write(f"  - Ano: {r['ano_extraido']}")
-            if r.get('acao_aplicacao'):
-                st.write(f"  - Ação: {r['acao_aplicacao']}")
-        
-        st.write(f"""
-        ### 📊 Resumo:
-        - Novos candidatos: {novos_candidatos}
-        - Candidatos atualizados: {candidatos_atualizados}
-        - Novas aplicações: {novas_aplicacoes}
-        - Aplicações atualizadas: {aplicacoes_atualizadas}
-        - Ignorados: {candidatos_ignorados}
-        """)
-        
         return {
             'sucesso': True,
             'novos_candidatos': novos_candidatos,
-            'candidatos_atualizados': candidatos_atualizados,
+            'candidatos_existentes': candidatos_existentes,
             'novas_aplicacoes': novas_aplicacoes,
-            'aplicacoes_atualizadas': aplicacoes_atualizadas,
-            'candidatos_ignorados': candidatos_ignorados,
-            'total_processados': len(dados_candidatos),
-            'detalhes': resultados_detalhados
+            'aplicacoes_existentes': aplicacoes_existentes,
+            'total_processados': len(dados_candidatos)
         }
         
     except Exception as e:
         if conn:
             conn.rollback()
+        print(f"Erro ao importar candidatos: {e}")
+        import traceback
+        traceback.print_exc()
         return {
             'sucesso': False,
             'erro': str(e)
