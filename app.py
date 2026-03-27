@@ -272,22 +272,56 @@ def admin_manage_emails():
 def admin_dashboard():
     st.title("📊 Dashboard Administrativo")
     
+    # Botão para atualizar estatísticas
+    col_refresh1, col_refresh2, col_refresh3 = st.columns([1, 1, 1])
+    with col_refresh2:
+        if st.button("🔄 Atualizar Estatísticas", use_container_width=True):
+            st.rerun()
+    
     # ===== SEÇÃO 1: ESTATÍSTICAS =====
     try:
         stats = get_estatisticas_gerais()
+        
+        total_processos = stats[0] if len(stats) > 0 else 0
+        total_candidatos = stats[1] if len(stats) > 1 else 0
+        total_aplicacoes_2026 = stats[2] if len(stats) > 2 else 0
+        total_avaliacoes = stats[3] if len(stats) > 3 else 0
+        gh_atualizados = stats[4] if len(stats) > 4 else 0
+        total_usuarios = stats[5] if len(stats) > 5 else 0
+        
         col1, col2, col3, col4, col5, col6 = st.columns(6)
-        with col1: st.metric("👥 Usuários", stats[5] if len(stats) > 5 else 0)
-        with col2: st.metric("📋 Processos", stats[0] if len(stats) > 0 else 0)
-        with col3: st.metric("👤 Candidatos", stats[1] if len(stats) > 1 else 0)
-        with col4: st.metric("📝 Aplicações 2026", stats[2] if len(stats) > 2 else 0)
-        with col5: st.metric("⭐ Avaliações", stats[3] if len(stats) > 3 else 0)
-        with col6: st.metric("✅ GH Atualizado", stats[4] if len(stats) > 4 else 0)
+        with col1: st.metric("👥 Usuários", total_usuarios)
+        with col2: st.metric("📋 Processos", total_processos)
+        with col3: st.metric("👤 Candidatos", total_candidatos)
+        with col4: st.metric("📝 Aplicações 2026", total_aplicacoes_2026)
+        with col5: st.metric("⭐ Avaliações", total_avaliacoes)
+        with col6: st.metric("✅ GH Atualizado", gh_atualizados)
+        
         st.divider()
+        
+        # Mostrar detalhes adicionais
+        with st.expander("📊 Detalhes das Estatísticas"):
+            st.write(f"**Processos:** {total_processos}")
+            st.write(f"**Candidatos únicos:** {total_candidatos}")
+            st.write(f"**Aplicações em 2026:** {total_aplicacoes_2026}")
+            st.write(f"**Avaliações realizadas:** {total_avaliacoes}")
+            st.write(f"**Greenhouse atualizados:** {gh_atualizados}")
+            st.write(f"**Usuários autorizados:** {total_usuarios}")
+            
+            if total_aplicacoes_2026 > 0:
+                taxa_conclusao = (total_avaliacoes / total_aplicacoes_2026) * 100
+                st.write(f"**Taxa de conclusão:** {taxa_conclusao:.1f}%")
+            
+            if total_avaliacoes > 0:
+                taxa_gh = (gh_atualizados / total_avaliacoes) * 100
+                st.write(f"**Taxa de GH atualizado:** {taxa_gh:.1f}%")
+        
     except Exception as e:
         st.error(f"Erro ao carregar estatísticas: {e}")
     
     # ===== SEÇÃO 2: FERRAMENTAS DE DEBUG =====
     with st.expander("🔧 Ferramentas de Manutenção e Debug"):
+        
         if st.button("🔌 Testar conexão com banco"):
             try:
                 conn = get_connection()
@@ -334,6 +368,41 @@ def admin_dashboard():
                 return_connection(conn)
             except Exception as e:
                 st.error(f"❌ Erro: {e}")
+        
+        if st.button("📊 Verificar dados no banco"):
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                
+                st.write("### 📋 Processos")
+                cursor.execute("SELECT id, nome, job_title, admission_category FROM processos")
+                for p in cursor.fetchall():
+                    st.write(f"   ID: {p[0]}, Nome: {p[1]}, Job: {p[2]}, Cat: {p[3]}")
+                
+                st.write("### 👤 Candidatos")
+                cursor.execute("SELECT id, nome, email FROM candidatos LIMIT 10")
+                for c in cursor.fetchall():
+                    st.write(f"   ID: {c[0]}, Nome: {c[1]}, Email: {c[2]}")
+                
+                st.write("### 📝 Aplicações 2026")
+                cursor.execute("""
+                    SELECT a.id, c.nome, a.timestamp_aplicacao 
+                    FROM aplicacoes a 
+                    JOIN candidatos c ON a.candidato_id = c.id 
+                    WHERE EXTRACT(YEAR FROM a.timestamp_aplicacao) = 2026
+                """)
+                for app in cursor.fetchall():
+                    st.write(f"   ID: {app[0]}, Candidato: {app[1]}, Data: {app[2]}")
+                
+                st.write("### ⭐ Avaliações")
+                cursor.execute("SELECT id, nota_final, gh_atualizada FROM avaliacoes")
+                for av in cursor.fetchall():
+                    st.write(f"   ID: {av[0]}, Nota: {av[1]}, GH: {av[2]}")
+                
+                cursor.close()
+                return_connection(conn)
+            except Exception as e:
+                st.error(f"Erro: {e}")
         
         if st.button("🏗️ Verificar estrutura das tabelas"):
             try:
@@ -487,7 +556,6 @@ def executar_importacao():
     
     st.write("### 🚀 Iniciando importação...")
     
-    # Agrupar por Job Title + Admission Category
     processos_data = {}
     for c in candidatos:
         chave = f"{c['job_title']}||{c['admission_category']}"
@@ -528,7 +596,6 @@ def executar_importacao():
                 novas = resultado.get('novas_aplicacoes', 0)
                 total_importados += novas
                 st.success(f"   ✅ {novas} candidatos importados")
-                st.write(f"   Detalhes: {resultado}")
             else:
                 st.error(f"   ❌ Erro: {resultado.get('erro', 'Erro desconhecido')}")
         else:
@@ -882,7 +949,11 @@ else:
             processo_info = get_processo_info(processo_id)
             
             if processo_info:
-                nome_processo, job_title, admission_category, status = processo_info
+                if len(processo_info) == 4:
+                    nome_processo, job_title, admission_category, status = processo_info
+                else:
+                    nome_processo, job_title, admission_category = processo_info[:3]
+                    status = "Aberto"
                 
                 col1, col2 = st.columns([2, 1])
                 with col1:
@@ -896,7 +967,6 @@ else:
                 
                 st.divider()
                 
-                # Estatísticas
                 stats = get_stats_2026(processo_id)
                 if stats:
                     col1, col2, col3, col4 = st.columns(4)
@@ -933,13 +1003,11 @@ else:
                 pendentes = get_aplicacoes_pendentes_2026(processo_id)
                 avaliados = get_aplicacoes_avaliadas_2026(processo_id)
                 
-                # Aplicar busca
                 if search_term:
                     search_lower = search_term.lower()
                     pendentes = [p for p in pendentes if search_lower in p[2].lower() or search_lower in p[3].lower()]
                     avaliados = [a for a in avaliados if search_lower in a[2].lower() or search_lower in a[3].lower()]
                 
-                # Aplicar filtro
                 if st.session_state.candidato_filter == "avaliados":
                     candidatos_exibir = avaliados
                 elif st.session_state.candidato_filter == "pendentes":
@@ -949,9 +1017,11 @@ else:
                 
                 st.caption(f"Mostrando {len(candidatos_exibir)} candidatos")
                 
-                # Exibir pendentes
+                if not candidatos_exibir:
+                    st.info("Nenhum candidato encontrado para este processo.")
+                
                 for app in pendentes:
-                    aplicacao_id, candidato_id, nome, email, linkedin, timestamp, greenhouse_id, pbix_file, optional_file = app
+                    aplicacao_id, candidato_id, nome, email, linkedin, timestamp, greenhouse_id, pbix_file, optional_file = app[:9]
                     ts_str = timestamp.strftime('%d/%m/%Y %H:%M') if timestamp else "Data não informada"
                     
                     st.markdown(f"""
@@ -970,9 +1040,8 @@ else:
                             st.rerun()
                     st.markdown("---")
                 
-                # Exibir avaliados
                 for app in avaliados:
-                    aplicacao_id, candidato_id, nome, email, timestamp, nota_final, priorizacao, gh_atualizada, data_avaliacao, avaliador = app
+                    aplicacao_id, candidato_id, nome, email, timestamp, nota_final, priorizacao, gh_atualizada, data_avaliacao, avaliador = app[:10]
                     
                     badge_class = "badge-success" if nota_final >= 8 else ("badge-warning" if nota_final >= 6 else "badge-danger")
                     status_text = "Aprovado" if nota_final >= 8 else ("Em análise" if nota_final >= 6 else "Reprovado")
@@ -1019,8 +1088,9 @@ else:
                     st.markdown("---")
             else:
                 st.error("Processo não encontrado")
-                if st.button("Voltar"):
+                if st.button("Voltar para Home"):
                     st.session_state.view = "home"
+                    st.session_state.processo_id = None
                     st.rerun()
         
         elif st.session_state.view == "avaliar":
@@ -1042,7 +1112,7 @@ else:
                     _, _, nome, email, linkedin, gh_id, pbix, opt, ts = app_info
                     processo_info = get_processo_info(processo_id)
                     if processo_info:
-                        nome_processo, job_title, admission_category, _ = processo_info
+                        nome_processo = processo_info[0] if processo_info else "Processo"
                         st.title(f"📝 Avaliar: {nome}")
                         evaluation_form(aplicacao_id, nome, email, linkedin, gh_id, pbix, opt, nome_processo, "Analytics Engineer")
         
