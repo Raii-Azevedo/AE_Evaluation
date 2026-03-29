@@ -112,6 +112,7 @@ def carregar_google_sheets():
             try:
                 creds = Credentials.from_service_account_file('credentials.json', scopes=scope)
             except FileNotFoundError:
+                st.warning("⚠️ Arquivo credentials.json não encontrado. Usando dados de demonstração.")
                 return carregar_google_sheets_demo()
         
         client = gspread.authorize(creds)
@@ -125,10 +126,14 @@ def carregar_google_sheets():
         st.info(f"📊 Total de registros na planilha: {len(all_data)}")
         st.info(f"📥 Importando a partir da linha 353: {len(data)} registros")
         
+        if data:
+            st.info(f"🔍 Colunas encontradas: {list(data[0].keys())}")
+        
         return data
     except Exception as e:
         st.error(f"Erro ao carregar Google Sheets: {str(e)}")
-        return None
+        st.info("🔄 Usando dados de demonstração como fallback.")
+        return carregar_google_sheets_demo()
 
 def carregar_google_sheets_demo():
     return [
@@ -418,11 +423,18 @@ def sincronizar_dados_google_sheets():
         st.error("❌ Não foi possível carregar dados")
         return False
     
+    # Map column names to handle variations
+    def get_value(row, possible_keys, default=''):
+        for key in possible_keys:
+            if key in row and row[key].strip():
+                return row[key].strip()
+        return default
+    
     candidatos_para_importar = []
     for linha in dados:
-        timestamp = linha.get('Timestamp', '')
-        job_title = linha.get('Job title', '').strip()
-        admission_category = linha.get('Admission Category', '').strip()
+        timestamp = get_value(linha, ['Timestamp', 'timestamp'])
+        job_title = get_value(linha, ['Job title', 'Job Title', 'job_title', 'job title'])
+        admission_category = get_value(linha, ['Admission Category', 'Admission category', 'admission_category', 'admission category'])
         
         ano = None
         if timestamp:
@@ -438,12 +450,12 @@ def sincronizar_dados_google_sheets():
             if job_title and admission_category:
                 candidatos_para_importar.append({
                     'timestamp': timestamp,
-                    'email': linha.get('Email address', '').strip(),
-                    'nome': linha.get('Full name', '').strip(),
-                    'linkedin': linha.get('LinkedIn', '').strip(),
-                    'greenhouse_id': linha.get('Greenhouse ID', '').strip(),
-                    'pbix_file': linha.get('Pbix file', '').strip(),
-                    'optional_file': linha.get('Optional file', '').strip(),
+                    'email': get_value(linha, ['Email address', 'Email Address', 'email', 'email_address']),
+                    'nome': get_value(linha, ['Full name', 'Full Name', 'nome', 'full_name']),
+                    'linkedin': get_value(linha, ['LinkedIn', 'linkedin']),
+                    'greenhouse_id': get_value(linha, ['Greenhouse ID', 'Greenhouse id', 'greenhouse_id']),
+                    'pbix_file': get_value(linha, ['Pbix file', 'Pbix File', 'pbix_file']),
+                    'optional_file': get_value(linha, ['Optional file', 'Optional File', 'optional_file']),
                     'job_title': job_title,
                     'admission_category': admission_category,
                 })
@@ -516,12 +528,18 @@ def executar_importacao():
         st.write(f"   Admission Category: '{processo['admission_category']}'")
         st.write(f"   Candidatos: {len(processo['candidatos'])}")
         
+        # Debug: mostrar dados dos candidatos
+        st.write("   📋 Dados dos candidatos:")
+        for i, cand in enumerate(processo['candidatos'][:3]):  # Mostrar apenas os primeiros 3
+            st.write(f"     {i+1}. {cand['nome']} ({cand['email']}) - {cand['timestamp']}")
+        if len(processo['candidatos']) > 3:
+            st.write(f"     ... e mais {len(processo['candidatos']) - 3} candidatos")
+        
         processo_id = get_ou_criar_processo(processo['nome'], processo['job_title'], processo['admission_category'])
         
         st.write(f"   Processo ID obtido: {processo_id}")
         
         if processo_id:
-            processos_criados += 1
             st.write(f"✅ Processo **{processo['nome']}** (ID: {processo_id})")
             
             resultado = importar_candidatos_sheets(processo['candidatos'], processo_id, st.session_state.user_email)
@@ -532,7 +550,7 @@ def executar_importacao():
                 novas = resultado.get('novas_aplicacoes', 0)
                 total_importados += novas
                 st.success(f"   ✅ {novas} novas aplicações criadas")
-                st.write(f"   📊 Detalhes: {resultado}")
+                st.write(f"   📊 Detalhes: Novos candidatos: {resultado.get('novos_candidatos')}, Existentes: {resultado.get('candidatos_existentes')}")
             else:
                 st.error(f"   ❌ Erro: {resultado.get('erro', 'Erro desconhecido')}")
         else:

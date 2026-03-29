@@ -217,28 +217,28 @@ def init_db():
 
 def get_ou_criar_processo(nome_processo, job_title, admission_category):
     """Obtém ou cria um processo baseado no Job Title + Admission Category"""
+    print(f"🔍 Buscando/criando processo: '{job_title}' - '{admission_category}'")
+    
     conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
         
-        print(f"🔍 Buscando processo: job_title='{job_title}', admission_category='{admission_category}'")
-        
         # Buscar processo existente
         cursor.execute("""
-            SELECT id FROM processos 
+            SELECT id, nome FROM processos 
             WHERE job_title = %s AND admission_category = %s
         """, (job_title, admission_category))
         
         result = cursor.fetchone()
         
         if result:
-            processo_id = result[0]
-            print(f"✅ Processo encontrado: ID {processo_id}")
+            processo_id, nome_existente = result
+            print(f"✅ Processo encontrado: ID {processo_id} - '{nome_existente}'")
             return processo_id
         else:
             # Criar novo processo
-            print(f"🆕 Criando novo processo: {nome_processo}")
+            print(f"🆕 Criando novo processo: '{nome_processo}'")
             cursor.execute("""
                 INSERT INTO processos (nome, job_title, admission_category, status)
                 VALUES (%s, %s, %s, %s)
@@ -310,6 +310,8 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
     Importa candidatos do Google Sheets a partir da linha 353
     Verifica se já existe aplicação com o mesmo timestamp para não duplicar
     """
+    print(f"🚀 Iniciando importação: {len(dados_candidatos)} candidatos para processo {processo_id}")
+    
     conn = None
     try:
         conn = get_connection()
@@ -320,9 +322,12 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
         candidatos_existentes = 0
         aplicacoes_existentes = 0
         
-        for candidato in dados_candidatos:
+        for i, candidato in enumerate(dados_candidatos):
+            print(f"📝 Processando candidato {i+1}/{len(dados_candidatos)}: {candidato.get('email', 'SEM EMAIL')}")
+            
             email = candidato.get('email', '').strip()
             if not email:
+                print(f"⚠️ Candidato {i+1} sem email, pulando...")
                 continue
             
             timestamp_aplicacao_str = candidato.get('timestamp')
@@ -340,8 +345,11 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
                             hora = partes[2].split(' ')[1] if len(partes[2].split(' ')) > 1 else "00:00:00"
                             data_formatada = f"{ano}-{mes}-{dia} {hora}"
                             timestamp_aplicacao = datetime.strptime(data_formatada, '%Y-%m-%d %H:%M:%S')
+                            print(f"✅ Timestamp convertido: {timestamp_aplicacao}")
+                        else:
+                            print(f"⚠️ Timestamp mal formatado: {timestamp_aplicacao_str}")
                 except Exception as e:
-                    print(f"Erro ao converter data: {e}")
+                    print(f"❌ Erro ao converter data '{timestamp_aplicacao_str}': {e}")
                     continue
             
             # Verificar se já existe candidato
@@ -350,16 +358,21 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
             
             if not existe:
                 # Novo candidato
+                nome = candidato.get('nome', '').strip()
+                linkedin = candidato.get('linkedin', '').strip()
+                print(f"🆕 Criando novo candidato: {nome} ({email})")
                 cursor.execute("""
                     INSERT INTO candidatos (nome, email, linkedin)
                     VALUES (%s, %s, %s)
                     RETURNING id
-                """, (candidato.get('nome', ''), email, candidato.get('linkedin', '')))
+                """, (nome, email, linkedin))
                 candidato_id = cursor.fetchone()[0]
                 novos_candidatos += 1
+                print(f"✅ Candidato criado com ID: {candidato_id}")
             else:
                 candidato_id = existe[0]
                 candidatos_existentes += 1
+                print(f"✅ Candidato existente encontrado: ID {candidato_id}")
             
             # Verificar se já existe aplicação para este candidato com o mesmo timestamp
             if timestamp_aplicacao:
@@ -372,6 +385,7 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
                 
                 if not aplicacao_existente:
                     # Nova aplicação
+                    print(f"📄 Criando nova aplicação para candidato {candidato_id}")
                     cursor.execute("""
                         INSERT INTO aplicacoes 
                         (candidato_id, processo_id, greenhouse_id, pbix_file, optional_file, timestamp_aplicacao)
@@ -382,11 +396,15 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
                           candidato.get('pbix_file', ''), 
                           candidato.get('optional_file', ''), 
                           timestamp_aplicacao))
+                    aplicacao_id = cursor.fetchone()[0]
                     novas_aplicacoes += 1
+                    print(f"✅ Aplicação criada com ID: {aplicacao_id}")
                 else:
                     aplicacoes_existentes += 1
+                    print(f"✅ Aplicação já existe: ID {aplicacao_existente[0]}")
             else:
                 # Se não tem timestamp, criar mesmo assim
+                print(f"📄 Criando aplicação sem timestamp para candidato {candidato_id}")
                 cursor.execute("""
                     INSERT INTO aplicacoes 
                     (candidato_id, processo_id, greenhouse_id, pbix_file, optional_file, timestamp_aplicacao)
@@ -397,12 +415,14 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
                       candidato.get('pbix_file', ''), 
                       candidato.get('optional_file', ''), 
                       timestamp_aplicacao))
+                aplicacao_id = cursor.fetchone()[0]
                 novas_aplicacoes += 1
+                print(f"✅ Aplicação criada com ID: {aplicacao_id}")
         
         conn.commit()
         cursor.close()
         
-        return {
+        resultado = {
             'sucesso': True,
             'novos_candidatos': novos_candidatos,
             'candidatos_existentes': candidatos_existentes,
@@ -411,10 +431,13 @@ def importar_candidatos_sheets(dados_candidatos, processo_id, importado_por):
             'total_processados': len(dados_candidatos)
         }
         
+        print(f"🎉 Importação concluída: {resultado}")
+        return resultado
+        
     except Exception as e:
         if conn:
             conn.rollback()
-        print(f"Erro ao importar candidatos: {e}")
+        print(f"❌ Erro ao importar candidatos: {e}")
         import traceback
         traceback.print_exc()
         return {
