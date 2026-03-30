@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import time
+import json
+import os
 from datetime import datetime
 from database import (
     init_db, get_connection, return_connection,
@@ -19,7 +21,6 @@ from allowed_emails import (
 )
 import gspread
 from google.oauth2.service_account import Credentials
-from functools import wraps
 
 # ===== PAGE CONFIG =====
 st.set_page_config(
@@ -100,7 +101,6 @@ def extract_name_from_email(email):
     return "Avaliador"
 
 # ===== GOOGLE SHEETS INTEGRATION =====
-@st.cache_data(ttl=300)
 def carregar_google_sheets():
     try:
         scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -112,7 +112,6 @@ def carregar_google_sheets():
             try:
                 creds = Credentials.from_service_account_file('credentials.json', scopes=scope)
             except FileNotFoundError:
-                st.warning("⚠️ Arquivo credentials.json não encontrado. Usando dados de demonstração.")
                 return carregar_google_sheets_demo()
         
         client = gspread.authorize(creds)
@@ -123,16 +122,17 @@ def carregar_google_sheets():
         all_data = worksheet.get_all_records()
         data = all_data[352:] if len(all_data) > 352 else []
         
+        # SALVAR EM ARQUIVO LOCAL
+        with open('dados_sheets.json', 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        
         st.info(f"📊 Total de registros na planilha: {len(all_data)}")
         st.info(f"📥 Importando a partir da linha 353: {len(data)} registros")
-        
-        if data:
-            st.info(f"🔍 Colunas encontradas: {list(data[0].keys())}")
+        st.success(f"💾 Dados salvos em 'dados_sheets.json'")
         
         return data
     except Exception as e:
         st.error(f"Erro ao carregar Google Sheets: {str(e)}")
-        st.info("🔄 Usando dados de demonstração como fallback.")
         return carregar_google_sheets_demo()
 
 def carregar_google_sheets_demo():
@@ -162,6 +162,412 @@ def carregar_google_sheets_demo():
             'Priorização': ''
         }
     ]
+
+def carregar_dados_do_arquivo():
+    """Carrega dados do arquivo JSON local"""
+    try:
+        if os.path.exists('dados_sheets.json'):
+            with open('dados_sheets.json', 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            st.success(f"📁 Carregado do arquivo local: {len(data)} registros")
+            return data
+        else:
+            st.warning("⚠️ Arquivo dados_sheets.json não encontrado")
+            return None
+    except Exception as e:
+        st.error(f"Erro ao carregar arquivo: {e}")
+        return None
+
+def sincronizar_dados_google_sheets():
+    # Opção de usar arquivo local ou API
+    usar_arquivo = st.checkbox("📁 Usar arquivo local (dados_sheets.json)", value=True)
+    
+    if usar_arquivo:
+        dados = carregar_dados_do_arquivo()
+        if not dados:
+            st.warning("⚠️ Nenhum arquivo local encontrado. Usando API...")
+            dados = carregar_google_sheets()
+    else:
+        dados = carregar_google_sheets()
+    
+    if not dados:
+        st.error("❌ Não foi possível carregar dados")
+        return False
+    
+    # Map column names to handle variations
+    def get_value(row, possible_keys, default=''):
+        for key in possible_keys:
+            if key in row and row[key] and str(row[key]).strip():
+                return str(row[key]).strip()
+        return default
+    
+    candidatos_para_importar = []
+    for linha in dados:
+        timestamp = get_value(linha, ['Timestamp', 'timestamp'])
+        job_title = get_value(linha, ['Job title', 'Job Title', 'job_title', 'job title'])
+        admission_category = get_value(linha, ['Admission Category', 'Admission category', 'admission_category', 'admission category'])
+        
+        ano = None
+        if timestamp:
+            try:
+                if isinstance(timestamp, str):
+                    partes = timestamp.split('/')
+                    if len(partes) >= 3:
+                        ano = int(partes[2].split(' ')[0])
+            except:
+                pass
+        
+        if ano == 2026:
+            if job_title and admission_category:
+                candidatos_para_importar.append({
+                    'timestamp': timestamp,
+                    'email': get_value(linha, ['Email address', 'Email Address', 'email', 'email_address']),
+                    'nome': get_value(linha, ['Full name', 'Full Name', 'nome', 'full_name']),
+                    'linkedin': get_value(linha, ['LinkedIn', 'linkedin']),
+                    'greenhouse_id': get_value(linha, ['Greenhouse ID', 'Greenhouse id', 'greenhouse_id']),
+                    'pbix_file': get_value(linha, ['Pbix file', 'Pbix File', 'pbix_file']),
+                    'optional_file': get_value(linha, ['Optional file', 'Optional File', 'optional_file']),
+                    'job_title': job_title,
+                    'admission_category': admission_category,
+                })
+    
+    st.info(f"📊 **A serem importados:** {len(candidatos_para_importar)} candidatos de 2026")
+    
+    if len(candidatos_para_importar) == 0:
+        st.warning("⚠️ Nenhum candidato de 2026 encontrado.")
+        return False
+    
+    with st.expander("📋 Preview dos candidatos", expanded=True):
+        preview_df = pd.DataFrame(candidatos_para_importar)
+        st.dataframe(preview_df[['nome', 'email', 'job_title', 'admission_category']], use_container_width=True)
+    
+    st.session_state.candidatos_para_importar = candidatos_para_importar
+    
+    if st.button("✅ Confirmar Importação", type="primary", use_container_width=True):
+        st.session_state.executar_importacao = True
+        st.rerun()
+    return False
+
+def executar_importacao():
+    if not st.session_state.get('executar_importacao', False):
+        return False
+    
+    candidatos = st.session_state.get('candidatos_para_importar', [])
+    if not candidatos:
+        st.warning("⚠️ Nenhum candidato")
+        st.session_state.executar_importacao = False
+        return False
+    
+    st.write("### 🚀 Iniciando importação...")
+    st.write(f"📋 Total de candidatos a processar: {len(candidatos)}")
+    
+    # Mostrar os candidatos que serão importados
+    st.write("### 📋 CANDIDATOS A SEREM IMPORTADOS:")
+    for c in candidatos:
+        st.write(f"   - {c['nome']} ({c['email']}) -> Processo: {c['job_title']} - {c['admission_category']}")
+    
+    processos_data = {}
+    for c in candidatos:
+        chave = f"{c['job_title']}||{c['admission_category']}"
+        if chave not in processos_data:
+            processos_data[chave] = {
+                'nome': f"{c['job_title']} - {c['admission_category']}",
+                'job_title': c['job_title'],
+                'admission_category': c['admission_category'],
+                'candidatos': []
+            }
+        processos_data[chave]['candidatos'].append({
+            'timestamp': c['timestamp'],
+            'email': c['email'],
+            'nome': c['nome'],
+            'linkedin': c['linkedin'],
+            'greenhouse_id': c['greenhouse_id'],
+            'pbix_file': c['pbix_file'],
+            'optional_file': c['optional_file'],
+        })
+    
+    total_importados = 0
+    processos_criados = 0
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for idx, (chave, processo) in enumerate(processos_data.items()):
+        status_text.text(f"Processando: {processo['nome']}...")
+        
+        st.write(f"### 🔄 Processando: {processo['nome']}")
+        st.write(f"   Job Title: '{processo['job_title']}'")
+        st.write(f"   Admission Category: '{processo['admission_category']}'")
+        st.write(f"   Candidatos: {len(processo['candidatos'])}")
+        
+        processo_id = get_ou_criar_processo(processo['nome'], processo['job_title'], processo['admission_category'])
+        
+        st.write(f"   Processo ID obtido: {processo_id}")
+        
+        if processo_id:
+            processos_criados += 1
+            st.write(f"✅ Processo **{processo['nome']}** (ID: {processo_id})")
+            
+            resultado = importar_candidatos_sheets(processo['candidatos'], processo_id, st.session_state.user_email)
+            
+            st.write(f"   Resultado da importação: {resultado}")
+            
+            if resultado.get('sucesso'):
+                novas = resultado.get('novas_aplicacoes', 0)
+                total_importados += novas
+                st.success(f"   ✅ {novas} novas aplicações criadas")
+                st.write(f"   📊 Detalhes: Novos candidatos: {resultado.get('novos_candidatos')}, Existentes: {resultado.get('candidatos_existentes')}")
+            else:
+                st.error(f"   ❌ Erro: {resultado.get('erro', 'Erro desconhecido')}")
+        else:
+            st.error(f"❌ Falha ao criar processo {processo['nome']}")
+        
+        progress_bar.progress((idx + 1) / len(processos_data))
+    
+    status_text.text("Importação concluída!")
+    
+    if total_importados > 0:
+        st.success(f"""
+        ✅ **Sincronização concluída!**
+        - Processos: {processos_criados}
+        - Novas aplicações: {total_importados}
+        """)
+        st.session_state.ultima_sincronizacao = datetime.now()
+        st.session_state.executar_importacao = False
+        st.session_state.candidatos_para_importar = []
+        
+        if st.button("🔄 Recarregar página", use_container_width=True):
+            st.rerun()
+        return True
+    else:
+        st.warning("⚠️ Nenhuma nova aplicação foi importada.")
+        st.session_state.executar_importacao = False
+        return False
+
+# ===== ADMIN FUNCTIONS =====
+def admin_manage_emails():
+    st.title("📧 Gerenciar Emails Autorizados")
+    emails = get_all_allowed_emails()
+    if emails:
+        df = pd.DataFrame(emails, columns=["Email", "Role", "Adicionado por", "Data"])
+        st.dataframe(df, use_container_width=True)
+    st.divider()
+    with st.expander("➕ Adicionar Novo Email"):
+        col1, col2 = st.columns(2)
+        with col1:
+            new_email = st.text_input("Email")
+        with col2:
+            role = st.selectbox("Role", ["admin", "user", "viewer"])
+        if st.button("Adicionar Email", type="primary"):
+            if new_email:
+                if add_allowed_email(new_email, role, st.session_state.user_email):
+                    add_notification(f"✅ Email {new_email} adicionado", "success")
+                    st.rerun()
+                else:
+                    st.error("❌ Erro ao adicionar email")
+    with st.expander("🗑️ Remover Email"):
+        email_to_remove = st.selectbox("Selecione o email", [e[0] for e in emails if e[0] != "admin@artefact.com"])
+        if st.button("Remover Email", type="primary"):
+            if email_to_remove and remove_allowed_email(email_to_remove):
+                add_notification(f"✅ Email removido", "success")
+                st.rerun()
+
+def admin_relatorios():
+    st.title("📈 Relatórios e Análises")
+    
+    conn = None
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        
+        report_type = st.selectbox(
+            "Tipo de Relatório",
+            ["Resumo Geral", "Candidatos Pendentes 2026"]
+        )
+        
+        if report_type == "Resumo Geral":
+            cursor.execute("""
+                SELECT 
+                    p.nome as processo,
+                    COUNT(DISTINCT a.id) as aplicacoes_2026,
+                    COUNT(av.id) as avaliacoes,
+                    COALESCE(AVG(av.nota_final), 0) as media,
+                    SUM(CASE WHEN av.nota_final >= 8 THEN 1 ELSE 0 END) as aprovados,
+                    SUM(CASE WHEN av.gh_atualizada = true THEN 1 ELSE 0 END) as gh_atualizados
+                FROM processos p
+                LEFT JOIN aplicacoes a ON p.id = a.processo_id AND EXTRACT(YEAR FROM a.timestamp_aplicacao) = 2026
+                LEFT JOIN avaliacoes av ON a.id = av.aplicacao_id
+                GROUP BY p.id ORDER BY p.nome
+            """)
+            data = cursor.fetchall()
+            if data:
+                df = pd.DataFrame(data, columns=["Processo", "Aplicações 2026", "Avaliações", "Média", "Aprovados", "GH Atualizados"])
+                st.dataframe(df, use_container_width=True)
+        
+        elif report_type == "Candidatos Pendentes 2026":
+            cursor.execute("""
+                SELECT 
+                    p.nome as processo,
+                    c.nome,
+                    c.email,
+                    a.timestamp_aplicacao,
+                    a.greenhouse_id
+                FROM aplicacoes a
+                JOIN candidatos c ON a.candidato_id = c.id
+                JOIN processos p ON a.processo_id = p.id
+                LEFT JOIN avaliacoes av ON a.id = av.aplicacao_id
+                WHERE EXTRACT(YEAR FROM a.timestamp_aplicacao) = 2026 AND av.id IS NULL
+                ORDER BY p.nome, a.timestamp_aplicacao DESC
+            """)
+            data = cursor.fetchall()
+            if data:
+                df = pd.DataFrame(data, columns=["Processo", "Candidato", "Email", "Data Aplicação", "Greenhouse ID"])
+                st.dataframe(df, use_container_width=True)
+                st.info(f"Total de candidatos pendentes: {len(data)}")
+            else:
+                st.success("🎉 Não há candidatos pendentes para 2026!")
+        
+        cursor.close()
+    except Exception as e:
+        st.error(f"Erro ao gerar relatório: {str(e)}")
+    finally:
+        if conn:
+            return_connection(conn)
+
+def admin_dashboard():
+    st.title("📊 Dashboard Administrativo")
+    
+    col_refresh1, col_refresh2, col_refresh3 = st.columns([1, 1, 1])
+    with col_refresh2:
+        if st.button("🔄 Atualizar Estatísticas", use_container_width=True):
+            st.rerun()
+    
+    try:
+        stats = get_estatisticas_gerais()
+        total_processos = stats[0] if len(stats) > 0 else 0
+        total_candidatos = stats[1] if len(stats) > 1 else 0
+        total_aplicacoes_2026 = stats[2] if len(stats) > 2 else 0
+        total_avaliacoes = stats[3] if len(stats) > 3 else 0
+        gh_atualizados = stats[4] if len(stats) > 4 else 0
+        total_usuarios = stats[5] if len(stats) > 5 else 0
+        
+        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        with col1: st.metric("👥 Usuários", total_usuarios)
+        with col2: st.metric("📋 Processos", total_processos)
+        with col3: st.metric("👤 Candidatos", total_candidatos)
+        with col4: st.metric("📝 Aplicações 2026", total_aplicacoes_2026)
+        with col5: st.metric("⭐ Avaliações", total_avaliacoes)
+        with col6: st.metric("✅ GH Atualizado", gh_atualizados)
+        st.divider()
+        
+        with st.expander("📊 Detalhes das Estatísticas"):
+            st.write(f"**Processos:** {total_processos}")
+            st.write(f"**Candidatos únicos:** {total_candidatos}")
+            st.write(f"**Aplicações em 2026:** {total_aplicacoes_2026}")
+            st.write(f"**Avaliações realizadas:** {total_avaliacoes}")
+            st.write(f"**Greenhouse atualizados:** {gh_atualizados}")
+            st.write(f"**Usuários autorizados:** {total_usuarios}")
+            if total_aplicacoes_2026 > 0:
+                st.write(f"**Taxa de conclusão:** {(total_avaliacoes / total_aplicacoes_2026) * 100:.1f}%")
+            if total_avaliacoes > 0:
+                st.write(f"**Taxa de GH:** {(gh_atualizados / total_avaliacoes) * 100:.1f}%")
+    except Exception as e:
+        st.error(f"Erro ao carregar estatísticas: {e}")
+    
+    with st.expander("🔧 Ferramentas de Manutenção e Debug"):
+        if st.button("🔌 Testar conexão com banco"):
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT version()")
+                version = cursor.fetchone()
+                st.success(f"✅ Conexão OK! PostgreSQL: {version[0][:100]}...")
+                cursor.close()
+                return_connection(conn)
+            except Exception as e:
+                st.error(f"❌ Erro na conexão: {e}")
+        
+        if st.button("📋 Listar processos existentes"):
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                cursor.execute("SELECT id, nome, job_title, admission_category FROM processos")
+                processos = cursor.fetchall()
+                if processos:
+                    for p in processos:
+                        st.write(f"   ID: {p[0]} | Nome: {p[1]} | Job: {p[2]} | Cat: {p[3]}")
+                else:
+                    st.warning("Nenhum processo encontrado")
+                cursor.close()
+                return_connection(conn)
+            except Exception as e:
+                st.error(f"❌ Erro: {e}")
+        
+        if st.button("📊 Verificar dados no banco"):
+            try:
+                conn = get_connection()
+                cursor = conn.cursor()
+                st.write("### 📋 Processos")
+                cursor.execute("SELECT id, nome, job_title, admission_category FROM processos")
+                for p in cursor.fetchall():
+                    st.write(f"   ID: {p[0]}, Nome: {p[1]}, Job: {p[2]}, Cat: {p[3]}")
+                st.write("### 👤 Candidatos")
+                cursor.execute("SELECT id, nome, email FROM candidatos LIMIT 10")
+                for c in cursor.fetchall():
+                    st.write(f"   ID: {c[0]}, Nome: {c[1]}, Email: {c[2]}")
+                st.write("### 📝 Aplicações")
+                cursor.execute("""
+                    SELECT a.id, c.nome, a.timestamp_aplicacao 
+                    FROM aplicacoes a JOIN candidatos c ON a.candidato_id = c.id 
+                """)
+                for app in cursor.fetchall():
+                    st.write(f"   ID: {app[0]}, Candidato: {app[1]}, Data: {app[2]}")
+                cursor.close()
+                return_connection(conn)
+            except Exception as e:
+                st.error(f"Erro: {e}")
+    
+    st.divider()
+    
+    # ===== SEÇÃO DE SINCRONIZAÇÃO =====
+    st.subheader("🔄 Sincronização com Google Sheets")
+    if st.session_state.get('executar_importacao', False):
+        executar_importacao()
+    else:
+        sincronizar_dados_google_sheets()
+    if st.session_state.ultima_sincronizacao:
+        st.caption(f"📅 Última sincronização: {st.session_state.ultima_sincronizacao.strftime('%d/%m/%Y %H:%M:%S')}")
+    
+    st.divider()
+    
+    try:
+        conn = get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT role, COUNT(*) FROM allowed_emails GROUP BY role")
+        roles = cursor.fetchall()
+        cursor.close()
+        return_connection(conn)
+        if roles:
+            st.subheader("👥 Distribuição por Role")
+            cols = st.columns(len(roles))
+            for i, (role, total) in enumerate(roles):
+                role_name = {"admin": "👑 Administradores", "user": "⭐ Avaliadores", "viewer": "👀 Visualizadores"}.get(role, role)
+                with cols[i]:
+                    st.metric(role_name, total)
+    except Exception as e:
+        st.error(f"Erro: {e}")
+    
+    st.divider()
+    
+    st.subheader("📈 Atividade Recente")
+    try:
+        atividades = get_avaliacoes_recentes(10)
+        if atividades:
+            df = pd.DataFrame(atividades, columns=["Data", "Processo", "Candidato", "Nota", "Avaliador", "GH Atualizado"])
+            st.dataframe(df, use_container_width=True)
+        else:
+            st.info("Nenhuma avaliação realizada ainda")
+    except Exception as e:
+        st.error(f"Erro: {e}")
 
 # ===== STYLES =====
 def get_styles(dark_mode=False):
@@ -251,357 +657,6 @@ def login_page():
                 else:
                     st.warning("⚠️ Digite seu email")
             st.markdown('</div>', unsafe_allow_html=True)
-
-# ===== ADMIN FUNCTIONS =====
-def admin_manage_emails():
-    st.title("📧 Gerenciar Emails Autorizados")
-    emails = get_all_allowed_emails()
-    if emails:
-        df = pd.DataFrame(emails, columns=["Email", "Role", "Adicionado por", "Data"])
-        st.dataframe(df, use_container_width=True)
-    st.divider()
-    with st.expander("➕ Adicionar Novo Email"):
-        col1, col2 = st.columns(2)
-        with col1:
-            new_email = st.text_input("Email")
-        with col2:
-            role = st.selectbox("Role", ["admin", "user", "viewer"])
-        if st.button("Adicionar Email", type="primary"):
-            if new_email:
-                if add_allowed_email(new_email, role, st.session_state.user_email):
-                    add_notification(f"✅ Email {new_email} adicionado", "success")
-                    st.rerun()
-                else:
-                    st.error("❌ Erro ao adicionar email")
-    with st.expander("🗑️ Remover Email"):
-        email_to_remove = st.selectbox("Selecione o email", [e[0] for e in emails if e[0] != "admin@artefact.com"])
-        if st.button("Remover Email", type="primary"):
-            if email_to_remove and remove_allowed_email(email_to_remove):
-                add_notification(f"✅ Email removido", "success")
-                st.rerun()
-
-def admin_dashboard():
-    st.title("📊 Dashboard Administrativo")
-    
-    col_refresh1, col_refresh2, col_refresh3 = st.columns([1, 1, 1])
-    with col_refresh2:
-        if st.button("🔄 Atualizar Estatísticas", use_container_width=True):
-            st.rerun()
-    
-    try:
-        stats = get_estatisticas_gerais()
-        total_processos = stats[0] if len(stats) > 0 else 0
-        total_candidatos = stats[1] if len(stats) > 1 else 0
-        total_aplicacoes_2026 = stats[2] if len(stats) > 2 else 0
-        total_avaliacoes = stats[3] if len(stats) > 3 else 0
-        gh_atualizados = stats[4] if len(stats) > 4 else 0
-        total_usuarios = stats[5] if len(stats) > 5 else 0
-        
-        col1, col2, col3, col4, col5, col6 = st.columns(6)
-        with col1: st.metric("👥 Usuários", total_usuarios)
-        with col2: st.metric("📋 Processos", total_processos)
-        with col3: st.metric("👤 Candidatos", total_candidatos)
-        with col4: st.metric("📝 Aplicações 2026", total_aplicacoes_2026)
-        with col5: st.metric("⭐ Avaliações", total_avaliacoes)
-        with col6: st.metric("✅ GH Atualizado", gh_atualizados)
-        st.divider()
-        
-        with st.expander("📊 Detalhes das Estatísticas"):
-            st.write(f"**Processos:** {total_processos}")
-            st.write(f"**Candidatos únicos:** {total_candidatos}")
-            st.write(f"**Aplicações em 2026:** {total_aplicacoes_2026}")
-            st.write(f"**Avaliações realizadas:** {total_avaliacoes}")
-            st.write(f"**Greenhouse atualizados:** {gh_atualizados}")
-            st.write(f"**Usuários autorizados:** {total_usuarios}")
-            if total_aplicacoes_2026 > 0:
-                st.write(f"**Taxa de conclusão:** {(total_avaliacoes / total_aplicacoes_2026) * 100:.1f}%")
-            if total_avaliacoes > 0:
-                st.write(f"**Taxa de GH:** {(gh_atualizados / total_avaliacoes) * 100:.1f}%")
-    except Exception as e:
-        st.error(f"Erro ao carregar estatísticas: {e}")
-    
-    with st.expander("🔧 Ferramentas de Manutenção e Debug"):
-        if st.button("🔌 Testar conexão com banco"):
-            try:
-                conn = get_connection()
-                cursor = conn.cursor()
-                cursor.execute("SELECT version()")
-                version = cursor.fetchone()
-                st.success(f"✅ Conexão OK! PostgreSQL: {version[0][:100]}...")
-                cursor.close()
-                return_connection(conn)
-            except Exception as e:
-                st.error(f"❌ Erro na conexão: {e}")
-        
-        if st.button("📋 Listar processos existentes"):
-            try:
-                conn = get_connection()
-                cursor = conn.cursor()
-                cursor.execute("SELECT id, nome, job_title, admission_category FROM processos")
-                processos = cursor.fetchall()
-                if processos:
-                    for p in processos:
-                        st.write(f"   ID: {p[0]} | Nome: {p[1]} | Job: {p[2]} | Cat: {p[3]}")
-                else:
-                    st.warning("Nenhum processo encontrado")
-                cursor.close()
-                return_connection(conn)
-            except Exception as e:
-                st.error(f"❌ Erro: {e}")
-        
-        if st.button("📊 Verificar dados no banco"):
-            try:
-                conn = get_connection()
-                cursor = conn.cursor()
-                st.write("### 📋 Processos")
-                cursor.execute("SELECT id, nome, job_title, admission_category FROM processos")
-                for p in cursor.fetchall():
-                    st.write(f"   ID: {p[0]}, Nome: {p[1]}, Job: {p[2]}, Cat: {p[3]}")
-                st.write("### 👤 Candidatos")
-                cursor.execute("SELECT id, nome, email FROM candidatos LIMIT 10")
-                for c in cursor.fetchall():
-                    st.write(f"   ID: {c[0]}, Nome: {c[1]}, Email: {c[2]}")
-                st.write("### 📝 Aplicações 2026")
-                cursor.execute("""
-                    SELECT a.id, c.nome, a.timestamp_aplicacao 
-                    FROM aplicacoes a JOIN candidatos c ON a.candidato_id = c.id 
-                    WHERE EXTRACT(YEAR FROM a.timestamp_aplicacao) = 2026
-                """)
-                for app in cursor.fetchall():
-                    st.write(f"   ID: {app[0]}, Candidato: {app[1]}, Data: {app[2]}")
-                cursor.close()
-                return_connection(conn)
-            except Exception as e:
-                st.error(f"Erro: {e}")
-    
-    st.divider()
-    
-    # ===== SEÇÃO DE SINCRONIZAÇÃO =====
-    st.subheader("🔄 Sincronização com Google Sheets")
-    if st.session_state.get('executar_importacao', False):
-        executar_importacao()
-    else:
-        sincronizar_dados_google_sheets()
-    if st.session_state.ultima_sincronizacao:
-        st.caption(f"📅 Última sincronização: {st.session_state.ultima_sincronizacao.strftime('%d/%m/%Y %H:%M:%S')}")
-    
-    st.divider()
-    
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        cursor.execute("SELECT role, COUNT(*) FROM allowed_emails GROUP BY role")
-        roles = cursor.fetchall()
-        cursor.close()
-        return_connection(conn)
-        if roles:
-            st.subheader("👥 Distribuição por Role")
-            cols = st.columns(len(roles))
-            for i, (role, total) in enumerate(roles):
-                role_name = {"admin": "👑 Administradores", "user": "⭐ Avaliadores", "viewer": "👀 Visualizadores"}.get(role, role)
-                with cols[i]:
-                    st.metric(role_name, total)
-    except Exception as e:
-        st.error(f"Erro: {e}")
-    
-    st.divider()
-    
-    st.subheader("📈 Atividade Recente")
-    try:
-        atividades = get_avaliacoes_recentes(10)
-        if atividades:
-            df = pd.DataFrame(atividades, columns=["Data", "Processo", "Candidato", "Nota", "Avaliador", "GH Atualizado"])
-            st.dataframe(df, use_container_width=True)
-        else:
-            st.info("Nenhuma avaliação realizada ainda")
-    except Exception as e:
-        st.error(f"Erro: {e}")
-
-import json
-import os
-
-def carregar_google_sheets():
-    try:
-        scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-        
-        if 'google_credentials' in st.secrets:
-            creds_dict = st.secrets["google_credentials"]
-            creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
-        else:
-            try:
-                creds = Credentials.from_service_account_file('credentials.json', scopes=scope)
-            except FileNotFoundError:
-                return carregar_google_sheets_demo()
-        
-        client = gspread.authorize(creds)
-        sheet_id = "1ZYJjoZDQAZEIthzNfB5gl4DJ3zkwvQdHhkaeBXDorcg"
-        spreadsheet = client.open_by_key(sheet_id)
-        worksheet = spreadsheet.get_worksheet(0)
-        
-        all_data = worksheet.get_all_records()
-        data = all_data[352:] if len(all_data) > 352 else []
-        
-        # SALVAR EM ARQUIVO LOCAL
-        with open('dados_sheets.json', 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-        
-        st.info(f"📊 Total de registros na planilha: {len(all_data)}")
-        st.info(f"📥 Importando a partir da linha 353: {len(data)} registros")
-        st.success(f"💾 Dados salvos em 'dados_sheets.json'")
-        
-        return data
-    except Exception as e:
-        st.error(f"Erro ao carregar Google Sheets: {str(e)}")
-        return None
-    
-def carregar_dados_do_arquivo():
-    """Carrega dados do arquivo JSON local"""
-    try:
-        if os.path.exists('dados_sheets.json'):
-            with open('dados_sheets.json', 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            st.success(f"📁 Carregado do arquivo local: {len(data)} registros")
-            return data
-        else:
-            st.warning("⚠️ Arquivo dados_sheets.json não encontrado")
-            return None
-    except Exception as e:
-        st.error(f"Erro ao carregar arquivo: {e}")
-        return None
-
-def sincronizar_dados_google_sheets():
-    # Opção de usar arquivo local ou API
-    usar_arquivo = st.checkbox("📁 Usar arquivo local (dados_sheets.json)", value=True)
-    
-    if usar_arquivo:
-        dados = carregar_dados_do_arquivo()
-        if not dados:
-            st.warning("⚠️ Nenhum arquivo local encontrado. Usando API...")
-            dados = carregar_google_sheets()
-    else:
-        dados = carregar_google_sheets()
-    
-    if not dados:
-        st.error("❌ Não foi possível carregar dados")
-        return False
-    
-    # Map column names to handle variations
-    def get_value(row, possible_keys, default=''):
-        for key in possible_keys:
-            if key in row and row[key] and str(row[key]).strip():
-                return str(row[key]).strip()
-        return default
-    
-    candidatos_para_importar = []
-    for linha in dados:
-        timestamp = get_value(linha, ['Timestamp', 'timestamp'])
-        job_title = get_value(linha, ['Job title', 'Job Title', 'job_title', 'job title'])
-        admission_category = get_value(linha, ['Admission Category', 'Admission category', 'admission_category', 'admission category'])
-        
-        ano = None
-        if timestamp:
-            try:
-                if isinstance(timestamp, str):
-                    partes = timestamp.split('/')
-                    if len(partes) >= 3:
-                        ano = int(partes[2].split(' ')[0])
-            except:
-                pass
-        
-        if ano == 2026:
-            if job_title and admission_category:
-                candidatos_para_importar.append({
-                    'timestamp': timestamp,
-                    'email': get_value(linha, ['Email address', 'Email Address', 'email', 'email_address']),
-                    'nome': get_value(linha, ['Full name', 'Full Name', 'nome', 'full_name']),
-                    'linkedin': get_value(linha, ['LinkedIn', 'linkedin']),
-                    'greenhouse_id': get_value(linha, ['Greenhouse ID', 'Greenhouse id', 'greenhouse_id']),
-                    'pbix_file': get_value(linha, ['Pbix file', 'Pbix File', 'pbix_file']),
-                    'optional_file': get_value(linha, ['Optional file', 'Optional File', 'optional_file']),
-                    'job_title': job_title,
-                    'admission_category': admission_category,
-                })
-    
-    st.info(f"📊 **A serem importados:** {len(candidatos_para_importar)} candidatos de 2026")
-    
-    if len(candidatos_para_importar) == 0:
-        st.warning("⚠️ Nenhum candidato de 2026 encontrado.")
-        return False
-    
-    with st.expander("📋 Preview dos candidatos", expanded=True):
-        preview_df = pd.DataFrame(candidatos_para_importar)
-        st.dataframe(preview_df[['nome', 'email', 'job_title', 'admission_category']], use_container_width=True)
-    
-    st.session_state.candidatos_para_importar = candidatos_para_importar
-    
-    if st.button("✅ Confirmar Importação", type="primary", use_container_width=True):
-        st.session_state.executar_importacao = True
-        st.rerun()
-    return False
-
-
-
-def admin_relatorios():
-    st.title("📈 Relatórios e Análises")
-    
-    conn = None
-    try:
-        conn = get_connection()
-        cursor = conn.cursor()
-        
-        report_type = st.selectbox(
-            "Tipo de Relatório",
-            ["Resumo Geral", "Candidatos Pendentes 2026"]
-        )
-        
-        if report_type == "Resumo Geral":
-            cursor.execute("""
-                SELECT 
-                    p.nome as processo,
-                    COUNT(DISTINCT a.id) as aplicacoes_2026,
-                    COUNT(av.id) as avaliacoes,
-                    COALESCE(AVG(av.nota_final), 0) as media,
-                    SUM(CASE WHEN av.nota_final >= 8 THEN 1 ELSE 0 END) as aprovados,
-                    SUM(CASE WHEN av.gh_atualizada = true THEN 1 ELSE 0 END) as gh_atualizados
-                FROM processos p
-                LEFT JOIN aplicacoes a ON p.id = a.processo_id AND EXTRACT(YEAR FROM a.timestamp_aplicacao) = 2026
-                LEFT JOIN avaliacoes av ON a.id = av.aplicacao_id
-                GROUP BY p.id ORDER BY p.nome
-            """)
-            data = cursor.fetchall()
-            if data:
-                df = pd.DataFrame(data, columns=["Processo", "Aplicações 2026", "Avaliações", "Média", "Aprovados", "GH Atualizados"])
-                st.dataframe(df, use_container_width=True)
-        
-        elif report_type == "Candidatos Pendentes 2026":
-            cursor.execute("""
-                SELECT 
-                    p.nome as processo,
-                    c.nome,
-                    c.email,
-                    a.timestamp_aplicacao,
-                    a.greenhouse_id
-                FROM aplicacoes a
-                JOIN candidatos c ON a.candidato_id = c.id
-                JOIN processos p ON a.processo_id = p.id
-                LEFT JOIN avaliacoes av ON a.id = av.aplicacao_id
-                WHERE EXTRACT(YEAR FROM a.timestamp_aplicacao) = 2026 AND av.id IS NULL
-                ORDER BY p.nome, a.timestamp_aplicacao DESC
-            """)
-            data = cursor.fetchall()
-            if data:
-                df = pd.DataFrame(data, columns=["Processo", "Candidato", "Email", "Data Aplicação", "Greenhouse ID"])
-                st.dataframe(df, use_container_width=True)
-                st.info(f"Total de candidatos pendentes: {len(data)}")
-            else:
-                st.success("🎉 Não há candidatos pendentes para 2026!")
-        
-        cursor.close()
-    except Exception as e:
-        st.error(f"Erro ao gerar relatório: {str(e)}")
-    finally:
-        if conn:
-            return_connection(conn)
 
 # ===== SIDEBAR =====
 def render_sidebar():
@@ -916,7 +971,7 @@ else:
                     st.rerun()
             
             st.markdown("---")
-            st.markdown("### 👥 Candidatos 2026")
+            st.markdown("### 👥 Candidatos")
             
             pendentes = get_aplicacoes_pendentes_2026(processo_id)
             avaliados = get_aplicacoes_avaliadas_2026(processo_id)
