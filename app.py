@@ -433,9 +433,114 @@ def admin_relatorios():
         if conn:
             return_connection(conn)
 
+# ===== ADMIN DASHBOARD =====
 def admin_dashboard():
     st.title("📊 Dashboard Administrativo")
     
+    # ===== BOTÃO DE TESTE DIRETO =====
+    st.subheader("🧪 TESTE DIRETO - Forçar leitura do Sheets")
+    
+    if st.button("🔍 TESTAR LEITURA DO SHEETS", type="primary"):
+        with st.spinner("Lendo Google Sheets..."):
+            dados = carregar_google_sheets()
+            if dados:
+                st.success(f"✅ {len(dados)} registros lidos!")
+                st.write("**Primeiros 3 registros:**")
+                for i, row in enumerate(dados[:3]):
+                    st.write(f"{i+1}. Timestamp: {row.get('Timestamp')} | Job: {row.get('Job title')} | Nome: {row.get('Full name')}")
+                
+                # Contar registros de 2026
+                count_2026 = 0
+                for row in dados:
+                    ts = row.get('Timestamp', '')
+                    if ts:
+                        try:
+                            ano = int(str(ts).split('/')[2].split(' ')[0])
+                            if ano == 2026:
+                                count_2026 += 1
+                        except:
+                            pass
+                st.write(f"📅 Registros de 2026: {count_2026}")
+                
+                # Salvar no session state para importar
+                st.session_state.dados_teste = dados
+                st.session_state.dados_teste_carregados = True
+        
+        # Botão para importar dados de teste
+        if st.session_state.get('dados_teste_carregados', False):
+            dados_teste = st.session_state.get('dados_teste', [])
+            if dados_teste:
+                st.write(f"📋 Preparando importação de {len(dados_teste)} registros...")
+                
+                # Filtrar apenas 2026
+                candidatos_2026 = []
+                for row in dados_teste:
+                    ts = row.get('Timestamp', '')
+                    if ts:
+                        try:
+                            ano = int(str(ts).split('/')[2].split(' ')[0])
+                            if ano == 2026:
+                                job_title = row.get('Job title', '').strip()
+                                admission_category = row.get('Admission Category', '').strip()
+                                if job_title and admission_category:
+                                    candidatos_2026.append({
+                                        'timestamp': ts,
+                                        'email': row.get('Email address', '').strip(),
+                                        'nome': row.get('Full name', '').strip(),
+                                        'linkedin': row.get('LinkedIn', '').strip(),
+                                        'greenhouse_id': row.get('Greenhouse ID', '').strip(),
+                                        'pbix_file': row.get('Pbix file', '').strip(),
+                                        'optional_file': row.get('Optional file', '').strip(),
+                                        'job_title': job_title,
+                                        'admission_category': admission_category,
+                                    })
+                        except:
+                            pass
+                
+                st.write(f"📊 Candidatos de 2026: {len(candidatos_2026)}")
+                
+                if candidatos_2026:
+                    if st.button("🚀 IMPORTAR AGORA", type="primary"):
+                        with st.spinner("Importando..."):
+                            # Agrupar por processo
+                            processos_data = {}
+                            for c in candidatos_2026:
+                                chave = f"{c['job_title']}||{c['admission_category']}"
+                                if chave not in processos_data:
+                                    processos_data[chave] = {
+                                        'nome': f"{c['job_title']} - {c['admission_category']}",
+                                        'job_title': c['job_title'],
+                                        'admission_category': c['admission_category'],
+                                        'candidatos': []
+                                    }
+                                processos_data[chave]['candidatos'].append({
+                                    'timestamp': c['timestamp'],
+                                    'email': c['email'],
+                                    'nome': c['nome'],
+                                    'linkedin': c['linkedin'],
+                                    'greenhouse_id': c['greenhouse_id'],
+                                    'pbix_file': c['pbix_file'],
+                                    'optional_file': c['optional_file'],
+                                })
+                            
+                            total = 0
+                            for processo in processos_data.values():
+                                processo_id = get_ou_criar_processo(processo['nome'], processo['job_title'], processo['admission_category'])
+                                if processo_id:
+                                    resultado = importar_candidatos_sheets(processo['candidatos'], processo_id, st.session_state.user_email)
+                                    if resultado.get('sucesso'):
+                                        total += resultado.get('novas_aplicacoes', 0)
+                                        st.success(f"✅ {resultado.get('novas_aplicacoes', 0)} importados para {processo['nome']}")
+                                    else:
+                                        st.error(f"❌ Erro: {resultado.get('erro')}")
+                            
+                            st.success(f"🎉 Total importado: {total} candidatos!")
+                            st.session_state.dados_teste_carregados = False
+                            st.rerun()
+    
+    st.divider()
+    
+    # ===== RESTO DO DASHBOARD NORMAL =====
     col_refresh1, col_refresh2, col_refresh3 = st.columns([1, 1, 1])
     with col_refresh2:
         if st.button("🔄 Atualizar Estatísticas", use_container_width=True):
