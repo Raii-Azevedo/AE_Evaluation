@@ -417,8 +417,70 @@ def admin_dashboard():
     except Exception as e:
         st.error(f"Erro: {e}")
 
+import json
+import os
+
+def carregar_google_sheets():
+    try:
+        scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        
+        if 'google_credentials' in st.secrets:
+            creds_dict = st.secrets["google_credentials"]
+            creds = Credentials.from_service_account_info(creds_dict, scopes=scope)
+        else:
+            try:
+                creds = Credentials.from_service_account_file('credentials.json', scopes=scope)
+            except FileNotFoundError:
+                return carregar_google_sheets_demo()
+        
+        client = gspread.authorize(creds)
+        sheet_id = "1ZYJjoZDQAZEIthzNfB5gl4DJ3zkwvQdHhkaeBXDorcg"
+        spreadsheet = client.open_by_key(sheet_id)
+        worksheet = spreadsheet.get_worksheet(0)
+        
+        all_data = worksheet.get_all_records()
+        data = all_data[352:] if len(all_data) > 352 else []
+        
+        # SALVAR EM ARQUIVO LOCAL
+        with open('dados_sheets.json', 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        st.info(f"📊 Total de registros na planilha: {len(all_data)}")
+        st.info(f"📥 Importando a partir da linha 353: {len(data)} registros")
+        st.success(f"💾 Dados salvos em 'dados_sheets.json'")
+        
+        return data
+    except Exception as e:
+        st.error(f"Erro ao carregar Google Sheets: {str(e)}")
+        return None
+    
+def carregar_dados_do_arquivo():
+    """Carrega dados do arquivo JSON local"""
+    try:
+        if os.path.exists('dados_sheets.json'):
+            with open('dados_sheets.json', 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            st.success(f"📁 Carregado do arquivo local: {len(data)} registros")
+            return data
+        else:
+            st.warning("⚠️ Arquivo dados_sheets.json não encontrado")
+            return None
+    except Exception as e:
+        st.error(f"Erro ao carregar arquivo: {e}")
+        return None
+
 def sincronizar_dados_google_sheets():
-    dados = carregar_google_sheets()
+    # Opção de usar arquivo local ou API
+    usar_arquivo = st.checkbox("📁 Usar arquivo local (dados_sheets.json)", value=True)
+    
+    if usar_arquivo:
+        dados = carregar_dados_do_arquivo()
+        if not dados:
+            st.warning("⚠️ Nenhum arquivo local encontrado. Usando API...")
+            dados = carregar_google_sheets()
+    else:
+        dados = carregar_google_sheets()
+    
     if not dados:
         st.error("❌ Não foi possível carregar dados")
         return False
@@ -426,8 +488,8 @@ def sincronizar_dados_google_sheets():
     # Map column names to handle variations
     def get_value(row, possible_keys, default=''):
         for key in possible_keys:
-            if key in row and row[key].strip():
-                return row[key].strip()
+            if key in row and row[key] and str(row[key]).strip():
+                return str(row[key]).strip()
         return default
     
     candidatos_para_importar = []
@@ -477,106 +539,7 @@ def sincronizar_dados_google_sheets():
         st.rerun()
     return False
 
-def executar_importacao():
-    if not st.session_state.get('executar_importacao', False):
-        return False
-    
-    candidatos = st.session_state.get('candidatos_para_importar', [])
-    if not candidatos:
-        st.warning("⚠️ Nenhum candidato")
-        st.session_state.executar_importacao = False
-        return False
-    
-    st.write("### 🚀 Iniciando importação...")
-    st.write(f"📋 Total de candidatos a processar: {len(candidatos)}")
-    
-    # DEBUG: Mostrar os candidatos que serão importados
-    st.write("### 📋 CANDIDATOS A SEREM IMPORTADOS:")
-    for c in candidatos:
-        st.write(f"   - {c['nome']} ({c['email']}) -> Processo: {c['job_title']} - {c['admission_category']}")
-    
-    processos_data = {}
-    for c in candidatos:
-        chave = f"{c['job_title']}||{c['admission_category']}"
-        if chave not in processos_data:
-            processos_data[chave] = {
-                'nome': f"{c['job_title']} - {c['admission_category']}",
-                'job_title': c['job_title'],
-                'admission_category': c['admission_category'],
-                'candidatos': []
-            }
-        processos_data[chave]['candidatos'].append({
-            'timestamp': c['timestamp'],
-            'email': c['email'],
-            'nome': c['nome'],
-            'linkedin': c['linkedin'],
-            'greenhouse_id': c['greenhouse_id'],
-            'pbix_file': c['pbix_file'],
-            'optional_file': c['optional_file'],
-        })
-    
-    total_importados = 0
-    processos_criados = 0
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    for idx, (chave, processo) in enumerate(processos_data.items()):
-        status_text.text(f"Processando: {processo['nome']}...")
-        
-        st.write(f"### 🔄 Processando: {processo['nome']}")
-        st.write(f"   Job Title: '{processo['job_title']}'")
-        st.write(f"   Admission Category: '{processo['admission_category']}'")
-        st.write(f"   Candidatos: {len(processo['candidatos'])}")
-        
-        # Debug: mostrar dados dos candidatos
-        st.write("   📋 Dados dos candidatos:")
-        for i, cand in enumerate(processo['candidatos'][:3]):  # Mostrar apenas os primeiros 3
-            st.write(f"     {i+1}. {cand['nome']} ({cand['email']}) - {cand['timestamp']}")
-        if len(processo['candidatos']) > 3:
-            st.write(f"     ... e mais {len(processo['candidatos']) - 3} candidatos")
-        
-        processo_id = get_ou_criar_processo(processo['nome'], processo['job_title'], processo['admission_category'])
-        
-        st.write(f"   Processo ID obtido: {processo_id}")
-        
-        if processo_id:
-            st.write(f"✅ Processo **{processo['nome']}** (ID: {processo_id})")
-            
-            resultado = importar_candidatos_sheets(processo['candidatos'], processo_id, st.session_state.user_email)
-            
-            st.write(f"   Resultado da importação: {resultado}")
-            
-            if resultado.get('sucesso'):
-                novas = resultado.get('novas_aplicacoes', 0)
-                total_importados += novas
-                st.success(f"   ✅ {novas} novas aplicações criadas")
-                st.write(f"   📊 Detalhes: Novos candidatos: {resultado.get('novos_candidatos')}, Existentes: {resultado.get('candidatos_existentes')}")
-            else:
-                st.error(f"   ❌ Erro: {resultado.get('erro', 'Erro desconhecido')}")
-        else:
-            st.error(f"❌ Falha ao criar processo {processo['nome']}")
-        
-        progress_bar.progress((idx + 1) / len(processos_data))
-    
-    status_text.text("Importação concluída!")
-    
-    if total_importados > 0:
-        st.success(f"""
-        ✅ **Sincronização concluída!**
-        - Processos: {processos_criados}
-        - Novas aplicações: {total_importados}
-        """)
-        st.session_state.ultima_sincronizacao = datetime.now()
-        st.session_state.executar_importacao = False
-        st.session_state.candidatos_para_importar = []
-        
-        if st.button("🔄 Recarregar página", use_container_width=True):
-            st.rerun()
-        return True
-    else:
-        st.warning("⚠️ Nenhuma nova aplicação foi importada.")
-        st.session_state.executar_importacao = False
-        return False
+
 
 def admin_relatorios():
     st.title("📈 Relatórios e Análises")
