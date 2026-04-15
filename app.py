@@ -248,16 +248,16 @@ def render_sidebar():
                 admin_option = st.radio(
                     "Menu Admin",
                     ["📊 Dashboard", "📧 Emails"],
-                    index=0 if current_option == "📊 Dashboard" else 1
+                    index=0 if current_option == "📊 Dashboard" else 1,
+                    key="admin_menu"
                 )
 
                 selected_view = "dashboard" if admin_option == "📊 Dashboard" else "emails"
                 if st.session_state.get("admin_view") != selected_view:
                     st.session_state.admin_view = selected_view
-                    st.session_state.view = "home"
-                    st.session_state.processo_id = None
-                    st.session_state.aplicacao_id = None
-                    st.session_state.avaliacao_id = None
+                    # Só reseta a view se não estiver dentro de um processo
+                    if st.session_state.view not in ["processo", "avaliar", "detalhe_avaliacao"]:
+                        st.session_state.view = "home"
                     st.rerun()
 
                 if st.button("🏠 Voltar para Administração", use_container_width=True):
@@ -581,6 +581,21 @@ else:
             
             pendentes = get_aplicacoes_pendentes(processo_id)
             avaliados = get_aplicacoes_avaliadas(processo_id)
+            
+            # Diagnóstico visível para verificar dados
+            with st.expander(f"🔍 Diagnóstico: {len(pendentes)} pendentes, {len(avaliados)} avaliados (processo_id={processo_id})", expanded=False):
+                if pendentes:
+                    st.write("Pendentes encontrados:")
+                    for p in pendentes:
+                        st.write(f"  - ID:{p[0]}, Nome:{p[2]}, Email:{p[3]}")
+                else:
+                    st.write("Nenhum candidato pendente retornado pela query.")
+                if avaliados:
+                    st.write("Avaliados encontrados:")
+                    for a in avaliados:
+                        st.write(f"  - ID:{a[0]}, Nome:{a[2]}, Email:{a[3]}")
+                else:
+                    st.write("Nenhum candidato avaliado retornado pela query.")
             
             if search_term:
                 search_lower = search_term.lower()

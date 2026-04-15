@@ -24,7 +24,11 @@ def get_connection():
     return pool.getconn()
 
 def return_connection(conn):
-    """Return a connection to the pool"""
+    """Return a connection to the pool, ensuring it's in a clean state"""
+    try:
+        conn.rollback()  # Garante que não há transação pendente/abortada
+    except Exception:
+        pass
     pool = get_connection_pool()
     pool.putconn(conn)
 
@@ -184,7 +188,7 @@ def get_processos_ativos():
         cursor.close()
         return processos
     except Exception as e:
-        print(f"Erro ao buscar processos: {e}")
+        st.warning(f"⚠️ Erro ao buscar processos: {e}")
         return []
     finally:
         if conn:
@@ -343,7 +347,7 @@ def get_aplicacoes_pendentes(processo_id):
         cursor.close()
         return result
     except Exception as e:
-        print(f"Erro ao buscar aplicações pendentes: {e}")
+        st.warning(f"⚠️ Erro ao buscar candidatos pendentes: {e}")
         return []
     finally:
         if conn:
@@ -380,7 +384,7 @@ def get_aplicacoes_avaliadas(processo_id):
         cursor.close()
         return result
     except Exception as e:
-        print(f"Erro ao buscar aplicações avaliadas: {e}")
+        st.warning(f"⚠️ Erro ao buscar candidatos avaliados: {e}")
         return []
     finally:
         if conn:
@@ -412,7 +416,7 @@ def get_stats(processo_id):
             return (result[0] or 0, result[1] or 0, result[2] or 0, result[3] or 0)
         return (0, 0, 0, 0)
     except Exception as e:
-        print(f"Erro ao buscar stats: {e}")
+        st.warning(f"⚠️ Erro ao buscar estatísticas: {e}")
         return (0, 0, 0, 0)
     finally:
         if conn:
