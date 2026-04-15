@@ -658,8 +658,6 @@ else:
                 elif priorizacao == "Prioridade 3":
                     prior_badge = '<span class="badge badge-info">🔵 Prioridade 3</span>'
                 
-                gh_badge = "badge-gh-done" if gh_atualizada else "badge-gh-pending"
-                gh_text = "✅ GH Atualizado" if gh_atualizada else "⚠️ Pendente GH"
                 data_str = data_avaliacao.strftime('%d/%m/%Y') if data_avaliacao else "Data não registrada"
                 
                 st.markdown(f"""
@@ -670,7 +668,6 @@ else:
                     </h3>
                     <p>📧 {email}</p>
                     <p>📅 Avaliado em: {data_str}</p>
-                    <p><span class="badge {gh_badge}">{gh_text}</span></p>
                 </div>
                 """, unsafe_allow_html=True)
                 
@@ -741,7 +738,6 @@ else:
             st.write(f"**Data da Avaliação:** {data_av_str}")
             st.write(f"**Data da Aplicação:** {ts_str}")
             st.write(f"**Priorização:** {priorizacao if priorizacao else 'Não priorizar'}")
-            st.write(f"**GH Atualizado:** {'✅ Sim' if gh_atualizada else '❌ Não'}")
             
             if linkedin: st.markdown(f"🔗 [LinkedIn]({linkedin})")
             if gh_id: st.markdown(f"🏢 [Greenhouse]({gh_id})")
