@@ -400,7 +400,7 @@ def evaluation_form(aplicacao_id, candidato_nome, email_candidato, linkedin, gre
     st.subheader("⭐ Priorização")
     priorizacao = st.radio(
         "Selecione a prioridade do candidato:",
-        ["Não priorizar", "Prioridade 1", "Prioridade 2", "Prioridade 3"],
+        ["Não priorizar", "Prioridade 1", "Prioridade 2"],
         index=0, horizontal=True
     )
     
@@ -652,11 +652,11 @@ else:
                 
                 prior_badge = ""
                 if priorizacao == "Prioridade 1":
-                    prior_badge = '<span class="badge badge-danger">🔴 Prioridade 1</span>'
+                    prior_badge = '<span class="badge badge-success">🟢 Prioridade 1</span>'
                 elif priorizacao == "Prioridade 2":
                     prior_badge = '<span class="badge badge-warning">🟡 Prioridade 2</span>'
-                elif priorizacao == "Prioridade 3":
-                    prior_badge = '<span class="badge badge-info">🔵 Prioridade 3</span>'
+                elif priorizacao == "Não priorizar" or not priorizacao:
+                    prior_badge = '<span class="badge badge-danger">🔴 Não priorizar</span>'
                 
                 data_str = data_avaliacao.strftime('%d/%m/%Y') if data_avaliacao else "Data não registrada"
                 
