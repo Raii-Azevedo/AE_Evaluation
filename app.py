@@ -300,6 +300,8 @@ def add_candidate_form(processo_id):
                     resultado = adicionar_candidato_processo(processo_id, nome, email, linkedin, greenhouse_id, pbix_file, optional_file)
                     if resultado and resultado.get("sucesso"):
                         acao = resultado.get("acao", "adicionado")
+                        st.session_state.candidato_filter = "todos"
+                        st.session_state.search_input = ""
                         add_notification(f"✅ Candidato {nome} {acao} no processo!", "success")
                         st.rerun()
                     else:
@@ -586,18 +588,22 @@ else:
                 avaliados = [a for a in avaliados if search_lower in a[2].lower() or search_lower in a[3].lower()]
             
             if st.session_state.candidato_filter == "avaliados":
-                candidatos_exibir = avaliados
+                pendentes_exibir = []
+                avaliados_exibir = avaliados
             elif st.session_state.candidato_filter == "pendentes":
-                candidatos_exibir = pendentes
+                pendentes_exibir = pendentes
+                avaliados_exibir = []
             else:
-                candidatos_exibir = pendentes + avaliados
-            
+                pendentes_exibir = pendentes
+                avaliados_exibir = avaliados
+
+            candidatos_exibir = pendentes_exibir + avaliados_exibir
             st.caption(f"Mostrando {len(candidatos_exibir)} candidatos")
             
             if not candidatos_exibir:
                 st.info("Nenhum candidato encontrado para este processo.")
             
-            for app in pendentes:
+            for app in pendentes_exibir:
                 aplicacao_id, candidato_id, nome, email, linkedin, timestamp, greenhouse_id, pbix_file, optional_file = app[:9]
                 ts_str = timestamp.strftime('%d/%m/%Y %H:%M') if timestamp else "Data não informada"
                 
@@ -617,7 +623,7 @@ else:
                         st.rerun()
                 st.markdown("---")
             
-            for app in avaliados:
+            for app in avaliados_exibir:
                 aplicacao_id, candidato_id, nome, email, timestamp, nota_final, priorizacao, gh_atualizada, data_avaliacao, avaliador = app[:10]
                 
                 badge_class = "badge-success" if nota_final >= 8 else ("badge-warning" if nota_final >= 6 else "badge-danger")
