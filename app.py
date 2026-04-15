@@ -756,14 +756,43 @@ else:
             st.subheader("📊 Avaliação por Critério")
             
             criterios = get_criterios_avaliacao(avaliacao_id)
-            current_bloco = None
+            
+            # Agrupar critérios por bloco
+            blocos = {}
             for bloco, criterio, nota, just in criterios:
-                if bloco != current_bloco:
-                    current_bloco = bloco
-                    st.markdown(f"### {bloco}")
-                with st.expander(f"{criterio} - Nota: {nota:.1f}" if nota > 0 else f"{criterio}"):
-                    if nota > 0:
-                        st.write(f"**Nota:** {nota:.1f}")
-                    if just:
-                        st.write("**Justificativa:**")
-                        st.write(just)
+                if bloco not in blocos:
+                    blocos[bloco] = []
+                blocos[bloco].append((criterio, nota, just))
+            
+            for bloco, itens in blocos.items():
+                st.markdown(f"### {bloco}")
+                
+                # Separar justificativas e notas
+                justificativas = [(c, n, j) for c, n, j in itens if n == 0 and j]
+                notas = [(c, n, j) for c, n, j in itens if n > 0]
+                
+                if justificativas:
+                    for criterio, _, just in justificativas:
+                        st.markdown(f"""
+                        <div style="background: rgba(255,255,255,0.05); border-left: 3px solid #60a5fa; 
+                                    padding: 14px 18px; border-radius: 8px; margin-bottom: 10px;">
+                            <span style="color: #94a3b8; font-size: 13px;">📝 Justificativa</span>
+                            <p style="margin: 6px 0 0; color: #e2e8f0;">{just}</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                
+                if notas:
+                    cols = st.columns(min(len(notas), 3))
+                    for i, (criterio, nota, _) in enumerate(notas):
+                        cor = "#22c55e" if nota >= 8 else ("#facc15" if nota >= 6 else "#ef4444")
+                        bg = f"rgba({34},{197},{94},0.1)" if nota >= 8 else (f"rgba({250},{204},{21},0.1)" if nota >= 6 else f"rgba({239},{68},{68},0.1)")
+                        with cols[i % min(len(notas), 3)]:
+                            st.markdown(f"""
+                            <div style="background: {bg}; border: 1px solid {cor}30; 
+                                        padding: 16px; border-radius: 12px; margin-bottom: 10px; text-align: center;">
+                                <div style="font-size: 28px; font-weight: 700; color: {cor};">{nota:.1f}</div>
+                                <div style="font-size: 13px; color: #94a3b8; margin-top: 4px;">{criterio}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                
+                st.markdown("")
