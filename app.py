@@ -87,7 +87,7 @@ def extract_name_from_email(email):
         return name
     return "Avaliador"
 
-# ===== STYLES (Apenas modo escuro) =====
+# ===== STYLES =====
 def get_styles():
     return """
     <style>
@@ -107,8 +107,6 @@ def get_styles():
     .stMetric { background: rgba(255,255,255,0.05); border-radius: 12px; padding: 15px; }
     hr { border-color: rgba(255,255,255,0.1); }
     .login-container { max-width: 400px; margin: 0 auto; padding: 40px; background: rgba(255,255,255,0.05); border-radius: 20px; backdrop-filter: blur(10px); }
-    .search-box { margin-bottom: 20px; }
-    .filter-buttons { display: flex; gap: 10px; margin-bottom: 20px; }
     </style>
     """
 
@@ -207,37 +205,6 @@ def admin_dashboard():
 
     st.divider()
     
-    # ===== ADICIONAR CANDIDATO =====
-    st.subheader("➕ Adicionar Candidato a um Processo")
-    processos = get_processos_ativos()
-    if processos:
-        with st.form("form_add_candidato"):
-            proc_opts = {f"{p[1]} ({p[2]} - {p[3]})": p[0] for p in processos}
-            proc_nome = st.selectbox("Selecione o Processo", list(proc_opts.keys()))
-            nome_cand = st.text_input("Nome do Candidato*")
-            email_cand = st.text_input("Email do Candidato*")
-            linkedin_cand = st.text_input("LinkedIn (URL)")
-            greenhouse_id = st.text_input("Greenhouse ID (URL)")
-            pbix_file = st.text_input("Link do arquivo PBIX")
-            optional_file = st.text_input("Link do arquivo opcional")
-            
-            submitted_cand = st.form_submit_button("➕ Adicionar Candidato")
-            if submitted_cand:
-                if nome_cand and email_cand:
-                    processo_id = proc_opts[proc_nome]
-                    resultado = adicionar_candidato_processo(processo_id, nome_cand, email_cand, linkedin_cand, greenhouse_id, pbix_file, optional_file)
-                    if resultado:
-                        add_notification(f"✅ Candidato {nome_cand} adicionado!", "success")
-                        st.rerun()
-                    else:
-                        st.error("❌ Erro ao adicionar candidato")
-                else:
-                    st.error("Preencha nome e email do candidato!")
-    else:
-        st.info("Crie um processo primeiro antes de adicionar candidatos.")
-    
-    st.divider()
-    
     # ===== ESTATÍSTICAS =====
     try:
         stats = get_estatisticas_gerais()
@@ -294,6 +261,33 @@ def render_sidebar():
                 st.session_state.logged_in = False
                 st.rerun()
 
+# ===== FORMULÁRIO PARA ADICIONAR CANDIDATO DENTRO DO PROCESSO =====
+def add_candidate_form(processo_id):
+    """Formulário para adicionar candidato dentro do processo"""
+    with st.expander("➕ Adicionar Novo Candidato a este Processo", expanded=False):
+        with st.form(f"form_add_candidato_{processo_id}"):
+            col1, col2 = st.columns(2)
+            with col1:
+                nome = st.text_input("Nome do Candidato*")
+                email = st.text_input("Email do Candidato*")
+                linkedin = st.text_input("LinkedIn (URL)")
+            with col2:
+                greenhouse_id = st.text_input("Greenhouse ID (URL)")
+                pbix_file = st.text_input("Link do arquivo PBIX")
+                optional_file = st.text_input("Link do arquivo opcional")
+            
+            submitted = st.form_submit_button("➕ Adicionar Candidato", use_container_width=True)
+            if submitted:
+                if nome and email:
+                    resultado = adicionar_candidato_processo(processo_id, nome, email, linkedin, greenhouse_id, pbix_file, optional_file)
+                    if resultado:
+                        add_notification(f"✅ Candidato {nome} adicionado ao processo!", "success")
+                        st.rerun()
+                    else:
+                        st.error("❌ Erro ao adicionar candidato")
+                else:
+                    st.error("Preencha nome e email do candidato!")
+
 # ===== EVALUATION FORM =====
 def evaluation_form(aplicacao_id, candidato_nome, email_candidato, linkedin, greenhouse_id, pbix_file, optional_file, processo_nome, area_processo):
     estrutura = get_criterios_por_area(area_processo)
@@ -312,7 +306,7 @@ def evaluation_form(aplicacao_id, candidato_nome, email_candidato, linkedin, gre
     
     st.divider()
     
-    # NOTAS POR BLOCO (sem justificativa por item)
+    # NOTAS POR BLOCO
     soma_ponderada = 0
     soma_pesos = 0
     notas_blocos = {}
@@ -320,7 +314,6 @@ def evaluation_form(aplicacao_id, candidato_nome, email_candidato, linkedin, gre
     for bloco, criterios in estrutura.items():
         st.subheader(f"📌 {bloco}")
         
-        # Mostrar cada item com sua nota
         notas_itens = []
         for item in criterios:
             criterio = item["criterio"]
@@ -343,12 +336,10 @@ def evaluation_form(aplicacao_id, candidato_nome, email_candidato, linkedin, gre
             soma_ponderada += nota * peso
             soma_pesos += peso
         
-        # Calcular nota do bloco
         peso_total_bloco = sum(item["peso"] for item in criterios)
         nota_bloco = sum(notas_itens) / peso_total_bloco if peso_total_bloco > 0 else 0
         notas_blocos[bloco] = nota_bloco
         
-        # Justificativa do bloco
         key_just = f"just_{bloco}"
         if key_just not in st.session_state:
             st.session_state[key_just] = ""
@@ -362,7 +353,6 @@ def evaluation_form(aplicacao_id, candidato_nome, email_candidato, linkedin, gre
         )
         st.divider()
     
-    # Nota final = média das notas dos blocos
     nota_final = sum(notas_blocos.values()) / len(notas_blocos) if notas_blocos else 0
     nota_final = round(nota_final, 2)
     
@@ -385,7 +375,6 @@ def evaluation_form(aplicacao_id, candidato_nome, email_candidato, linkedin, gre
     
     st.divider()
     
-    # Priorização
     st.subheader("⭐ Priorização")
     priorizacao = st.radio(
         "Selecione a prioridade do candidato:",
@@ -393,17 +382,14 @@ def evaluation_form(aplicacao_id, candidato_nome, email_candidato, linkedin, gre
         index=0, horizontal=True
     )
     
-    # Comentário final geral
     comentario = st.text_area("💬 Comentário Final Geral *", height=100, placeholder="Descreva sua avaliação de forma geral...")
     
     st.divider()
     
-    # Botão de finalizar com popup
     if st.button("✅ Finalizar Avaliação", type="primary", use_container_width=True):
         if not comentario:
             st.error("❌ Comentário final é obrigatório")
         else:
-            # Popup de confirmação
             with st.popover("⚠️ CONFIRMAR AVALIAÇÃO"):
                 st.warning("**Lembrete importante:**")
                 st.write("1. Após salvar, você precisará atualizar a planilha com a **data de correção**")
@@ -420,18 +406,15 @@ def evaluation_form(aplicacao_id, candidato_nome, email_candidato, linkedin, gre
                 col_yes, col_no = st.columns(2)
                 with col_yes:
                     if st.button("✅ Sim, salvar avaliação", use_container_width=True):
-                        # Salvar avaliação
                         avaliacao_id = salvar_avaliacao(
                             aplicacao_id, nota_final, st.session_state.user_email, 
                             comentario, priorizacao, gh_atualizado
                         )
                         if avaliacao_id:
-                            # Salvar justificativas dos blocos
                             for bloco in estrutura.keys():
                                 just = st.session_state.get(f"just_{bloco}", "")
                                 salvar_criterios_avaliacao(avaliacao_id, bloco, "Justificativa", 0, just)
                             
-                            # Salvar notas dos itens individuais
                             for bloco, criterios in estrutura.items():
                                 for item in criterios:
                                     criterio = item["criterio"]
@@ -537,6 +520,12 @@ else:
             
             st.divider()
             
+            # FORMULÁRIO PARA ADICIONAR CANDIDATO DENTRO DO PROCESSO
+            if can_edit(st.session_state.user_email):
+                add_candidate_form(processo_id)
+            
+            st.divider()
+            
             stats = get_stats(processo_id)
             if stats:
                 col1, col2, col3, col4 = st.columns(4)
@@ -547,11 +536,9 @@ else:
             
             st.divider()
             
-            # Buscador
             st.markdown("### 🔍 Buscar Candidato")
             search_term = st.text_input("Buscar por nome ou email", placeholder="Digite o nome ou email...", key="search_input")
             
-            # Filtros
             st.markdown("### 📌 Filtrar por Status")
             col_filter1, col_filter2, col_filter3 = st.columns(3)
             with col_filter1:
@@ -641,7 +628,7 @@ else:
                 """, unsafe_allow_html=True)
                 
                 if st.button("🔍 Ver Detalhes", key=f"det_{aplicacao_id}"):
-                    st.session_state.avaliacao_id = avaliacao_id
+                    st.session_state.avaliacao_id = aplicacao_id
                     st.session_state.view = "detalhe_avaliacao"
                     st.rerun()
                 
