@@ -238,13 +238,23 @@ def criar_processo(nome, area, senioridade, job_title, admission_category, local
 # ===== FUNÇÕES DE CANDIDATOS =====
 
 def adicionar_candidato_processo(processo_id, nome, email, linkedin, greenhouse_id, pbix_file, optional_file):
-    """Adiciona um candidato a um processo manualmente"""
+    """Adiciona ou atualiza um candidato em um processo manualmente"""
     conn = None
     try:
         conn = get_connection()
         cursor = conn.cursor()
-        
-        # Criar ou buscar candidato
+
+        nome = (nome or "").strip()
+        email = (email or "").strip().lower()
+        linkedin = (linkedin or "").strip()
+        greenhouse_id = (greenhouse_id or "").strip()
+        pbix_file = (pbix_file or "").strip()
+        optional_file = (optional_file or "").strip()
+
+        if not nome or not email:
+            return {"sucesso": False, "erro": "Nome e email são obrigatórios."}
+
+        # Criar ou atualizar candidato pelo email
         cursor.execute("""
             INSERT INTO candidatos (nome, email, linkedin, greenhouse_id, pbix_file, optional_file)
             VALUES (%s, %s, %s, %s, %s, %s)
@@ -257,25 +267,46 @@ def adicionar_candidato_processo(processo_id, nome, email, linkedin, greenhouse_
             RETURNING id
         """, (nome, email, linkedin, greenhouse_id, pbix_file, optional_file))
         candidato_id = cursor.fetchone()[0]
-        
-        # Criar aplicação
+
+        # Alguns bancos antigos não possuem UNIQUE(candidato_id, processo_id).
+        # Então buscamos primeiro e atualizamos se já existir.
         cursor.execute("""
-            INSERT INTO aplicacoes (candidato_id, processo_id, greenhouse_id, pbix_file, optional_file, timestamp_aplicacao)
-            VALUES (%s, %s, %s, %s, %s, NOW())
-            ON CONFLICT (candidato_id, processo_id) DO UPDATE SET
-                greenhouse_id = EXCLUDED.greenhouse_id,
-                pbix_file = EXCLUDED.pbix_file,
-                optional_file = EXCLUDED.optional_file
-            RETURNING id
-        """, (candidato_id, processo_id, greenhouse_id, pbix_file, optional_file))
-        aplicacao_id = cursor.fetchone()[0]
-        
+            SELECT id
+            FROM aplicacoes
+            WHERE candidato_id = %s AND processo_id = %s
+            ORDER BY id
+            LIMIT 1
+        """, (candidato_id, processo_id))
+        aplicacao_existente = cursor.fetchone()
+
+        if aplicacao_existente:
+            cursor.execute("""
+                UPDATE aplicacoes
+                SET greenhouse_id = %s,
+                    pbix_file = %s,
+                    optional_file = %s
+                WHERE id = %s
+                RETURNING id
+            """, (greenhouse_id, pbix_file, optional_file, aplicacao_existente[0]))
+            aplicacao_id = cursor.fetchone()[0]
+            acao = "atualizado"
+        else:
+            cursor.execute("""
+                INSERT INTO aplicacoes (candidato_id, processo_id, greenhouse_id, pbix_file, optional_file, timestamp_aplicacao)
+                VALUES (%s, %s, %s, %s, %s, NOW())
+                RETURNING id
+            """, (candidato_id, processo_id, greenhouse_id, pbix_file, optional_file))
+            aplicacao_id = cursor.fetchone()[0]
+            acao = "adicionado"
+
         conn.commit()
         cursor.close()
-        return aplicacao_id
+        return {"sucesso": True, "aplicacao_id": aplicacao_id, "acao": acao}
     except Exception as e:
+        if conn:
+            conn.rollback()
         print(f"Erro ao adicionar candidato: {e}")
-        return None
+        return {"sucesso": False, "erro": str(e)}
     finally:
         if conn:
             return_connection(conn)

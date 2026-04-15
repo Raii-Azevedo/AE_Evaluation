@@ -188,13 +188,14 @@ def admin_dashboard():
         with col1:
             nome_processo = st.text_input("Nome do Processo*")
             job_title = st.text_input("Job Title*")
+            pais = st.text_input("País*", value="Brasil")
         with col2:
             admission_category = st.selectbox("Categoria*", ["Ampla Concorrência", "Pessoas Negras", "LGBTQIAPN+", "Mulheres (Cis | Trans)", "Pessoa com Deficiência"])
             area = st.selectbox("Área*", get_areas_disponiveis())
         submitted = st.form_submit_button("✅ Criar Processo")
         if submitted:
-            if nome_processo and job_title and admission_category and area:
-                processo_id = criar_processo(nome_processo, area, "Pleno", job_title, admission_category, "BRASIL")
+            if nome_processo and job_title and admission_category and area and pais:
+                processo_id = criar_processo(nome_processo, area, "Pleno", job_title, admission_category, pais)
                 if processo_id:
                     add_notification(f"✅ Processo '{nome_processo}' criado!", "success")
                     st.rerun()
@@ -243,11 +244,28 @@ def render_sidebar():
             
             if st.session_state.user_role == "admin":
                 st.markdown("### 🛠️ Administração")
-                admin_option = st.radio("Menu Admin", ["📊 Dashboard", "📧 Emails"], key="admin_menu", index=0)
-                if admin_option == "📊 Dashboard":
-                    st.session_state.admin_view = "dashboard"
-                elif admin_option == "📧 Emails":
-                    st.session_state.admin_view = "emails"
+                current_option = "📧 Emails" if st.session_state.get("admin_view") == "emails" else "📊 Dashboard"
+                admin_option = st.radio(
+                    "Menu Admin",
+                    ["📊 Dashboard", "📧 Emails"],
+                    index=0 if current_option == "📊 Dashboard" else 1
+                )
+
+                selected_view = "dashboard" if admin_option == "📊 Dashboard" else "emails"
+                if st.session_state.get("admin_view") != selected_view:
+                    st.session_state.admin_view = selected_view
+                    st.session_state.view = "home"
+                    st.session_state.processo_id = None
+                    st.session_state.aplicacao_id = None
+                    st.session_state.avaliacao_id = None
+                    st.rerun()
+
+                if st.button("🏠 Voltar para Administração", use_container_width=True):
+                    st.session_state.view = "home"
+                    st.session_state.processo_id = None
+                    st.session_state.aplicacao_id = None
+                    st.session_state.avaliacao_id = None
+                    st.rerun()
             
             st.markdown("---")
             
@@ -280,11 +298,13 @@ def add_candidate_form(processo_id):
             if submitted:
                 if nome and email:
                     resultado = adicionar_candidato_processo(processo_id, nome, email, linkedin, greenhouse_id, pbix_file, optional_file)
-                    if resultado:
-                        add_notification(f"✅ Candidato {nome} adicionado ao processo!", "success")
+                    if resultado and resultado.get("sucesso"):
+                        acao = resultado.get("acao", "adicionado")
+                        add_notification(f"✅ Candidato {nome} {acao} no processo!", "success")
                         st.rerun()
                     else:
-                        st.error("❌ Erro ao adicionar candidato")
+                        erro = resultado.get("erro", "Erro desconhecido") if isinstance(resultado, dict) else "Erro desconhecido"
+                        st.error(f"❌ Erro ao adicionar candidato: {erro}")
                 else:
                     st.error("Preencha nome e email do candidato!")
 
