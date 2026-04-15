@@ -416,21 +416,18 @@ def evaluation_form(aplicacao_id, candidato_nome, email_candidato, linkedin, gre
                 st.warning("**Lembrete importante:**")
                 st.write("1. Após salvar, você precisará atualizar a planilha com a **data de correção**")
                 st.write("2. Não esqueça de **mover o candidato no Greenhouse** para a etapa correta")
-                st.write("3. Marque o checkbox abaixo para registrar que já atualizou")
                 
                 st.divider()
                 st.write(f"**Candidato:** {candidato_nome}")
                 st.write(f"**Nota Final:** {nota_final}")
                 st.write(f"**Priorização:** {priorizacao}")
                 
-                gh_atualizado = st.checkbox("✅ Já atualizei o candidato no Greenhouse")
-                
                 col_yes, col_no = st.columns(2)
                 with col_yes:
                     if st.button("✅ Sim, salvar avaliação", use_container_width=True):
                         avaliacao_id = salvar_avaliacao(
                             aplicacao_id, nota_final, st.session_state.user_email, 
-                            comentario, priorizacao, gh_atualizado
+                            comentario, priorizacao
                         )
                         if avaliacao_id:
                             for bloco in estrutura.keys():
