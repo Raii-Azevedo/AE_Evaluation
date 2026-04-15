@@ -712,14 +712,14 @@ else:
                     evaluation_form(aplicacao_id, nome, email, linkedin, gh_id, pbix, opt, nome_processo, area_processo)
     
     elif st.session_state.view == "detalhe_avaliacao":
-        avaliacao_id = st.session_state.avaliacao_id
+        aplicacao_id = st.session_state.avaliacao_id
         if st.button("← Voltar"):
             st.session_state.view = "processo"
             st.rerun()
         
-        avaliacao = get_avaliacao_completa(avaliacao_id)
+        avaliacao = get_avaliacao_completa(aplicacao_id)
         if avaliacao:
-            nota_final, avaliador, comentario, data_avaliacao, priorizacao, gh_atualizada, nome, email, linkedin, gh_id, pbix, opt, timestamp, processo_nome = avaliacao
+            nota_final, avaliador, comentario, data_avaliacao, priorizacao, gh_atualizada, nome, email, linkedin, gh_id, pbix, opt, timestamp, processo_nome, avaliacao_id = avaliacao
             
             st.title(f"🔍 Detalhe da Avaliação")
             col1, col2 = st.columns(2)

@@ -456,7 +456,7 @@ def get_aplicacao_info(aplicacao_id):
 
 # ===== FUNÇÕES DE AVALIAÇÕES =====
 
-def salvar_avaliacao(aplicacao_id, nota_final, avaliador, comentario, priorizacao, gh_atualizada=False):
+def salvar_avaliacao(aplicacao_id, nota_final, avaliador, comentario, priorizacao, gh_atualizada=True):
     """Salva uma nova avaliação para uma aplicação"""
     conn = None
     try:
@@ -534,7 +534,7 @@ def get_ultima_avaliacao_por_aplicacao(aplicacao_id):
             return_connection(conn)
 
 
-def get_avaliacao_completa(avaliacao_id):
+def get_avaliacao_completa(aplicacao_id):
     """Busca avaliação completa com informações da aplicação e candidato"""
     conn = None
     try:
@@ -545,13 +545,16 @@ def get_avaliacao_completa(avaliacao_id):
                    av.priorizacao, av.gh_atualizada,
                    c.nome, c.email, c.linkedin,
                    a.greenhouse_id, a.pbix_file, a.optional_file, a.timestamp_aplicacao,
-                   p.nome as processo_nome
+                   p.nome as processo_nome,
+                   av.id
             FROM avaliacoes av
             JOIN aplicacoes a ON av.aplicacao_id = a.id
             JOIN candidatos c ON a.candidato_id = c.id
             JOIN processos p ON a.processo_id = p.id
-            WHERE av.id = %s
-        """, (avaliacao_id,))
+            WHERE av.aplicacao_id = %s
+            ORDER BY av.data_avaliacao DESC
+            LIMIT 1
+        """, (aplicacao_id,))
         result = cursor.fetchone()
         cursor.close()
         return result
