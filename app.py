@@ -408,46 +408,55 @@ def evaluation_form(aplicacao_id, candidato_nome, email_candidato, linkedin, gre
     
     st.divider()
     
+    if "confirmar_avaliacao" not in st.session_state:
+        st.session_state.confirmar_avaliacao = False
+    
     if st.button("✅ Finalizar Avaliação", type="primary", use_container_width=True):
         if not comentario:
             st.error("❌ Comentário final é obrigatório")
         else:
-            with st.popover("⚠️ CONFIRMAR AVALIAÇÃO"):
-                st.warning("**Lembrete importante:**")
-                st.write("1. Após salvar, você precisará atualizar a planilha com a **data de correção**")
-                st.write("2. Não esqueça de **mover o candidato no Greenhouse** para a etapa correta")
-                
-                st.divider()
-                st.write(f"**Candidato:** {candidato_nome}")
-                st.write(f"**Nota Final:** {nota_final}")
-                st.write(f"**Priorização:** {priorizacao}")
-                
-                col_yes, col_no = st.columns(2)
-                with col_yes:
-                    if st.button("✅ Sim, salvar avaliação", use_container_width=True):
-                        avaliacao_id = salvar_avaliacao(
-                            aplicacao_id, nota_final, st.session_state.user_email, 
-                            comentario, priorizacao
-                        )
-                        if avaliacao_id:
-                            for bloco in estrutura.keys():
-                                just = st.session_state.get(f"just_{bloco}", "")
-                                salvar_criterios_avaliacao(avaliacao_id, bloco, "Justificativa", 0, just)
-                            
-                            for bloco, criterios in estrutura.items():
-                                for item in criterios:
-                                    criterio = item["criterio"]
-                                    nota = st.session_state.get(f"{bloco}_{criterio}", 5.0)
-                                    salvar_criterios_avaliacao(avaliacao_id, bloco, criterio, nota, "")
-                            
-                            add_notification(f"✅ Avaliação de {candidato_nome} salva!", "success")
-                            st.session_state.view = "processo"
-                            st.rerun()
-                        else:
-                            st.error("❌ Erro ao salvar avaliação")
-                with col_no:
-                    if st.button("❌ Não, revisar", use_container_width=True):
-                        st.rerun()
+            st.session_state.confirmar_avaliacao = True
+            st.rerun()
+    
+    if st.session_state.confirmar_avaliacao:
+        st.warning("⚠️ **CONFIRMAR AVALIAÇÃO**")
+        st.write("**Lembrete importante:**")
+        st.write("1. Após salvar, você precisará atualizar a planilha com a **data de correção**")
+        st.write("2. Não esqueça de **mover o candidato no Greenhouse** para a etapa correta")
+        
+        st.divider()
+        st.write(f"**Candidato:** {candidato_nome}")
+        st.write(f"**Nota Final:** {nota_final}")
+        st.write(f"**Priorização:** {priorizacao}")
+        
+        col_yes, col_no = st.columns(2)
+        with col_yes:
+            if st.button("✅ Já avaliei, salvar", use_container_width=True, type="primary"):
+                avaliacao_id = salvar_avaliacao(
+                    aplicacao_id, nota_final, st.session_state.user_email, 
+                    comentario, priorizacao
+                )
+                if avaliacao_id:
+                    for bloco in estrutura.keys():
+                        just = st.session_state.get(f"just_{bloco}", "")
+                        salvar_criterios_avaliacao(avaliacao_id, bloco, "Justificativa", 0, just)
+                    
+                    for bloco, criterios in estrutura.items():
+                        for item in criterios:
+                            criterio = item["criterio"]
+                            nota = st.session_state.get(f"{bloco}_{criterio}", 5.0)
+                            salvar_criterios_avaliacao(avaliacao_id, bloco, criterio, nota, "")
+                    
+                    st.session_state.confirmar_avaliacao = False
+                    add_notification(f"✅ Avaliação de {candidato_nome} salva!", "success")
+                    st.session_state.view = "processo"
+                    st.rerun()
+                else:
+                    st.error("❌ Erro ao salvar avaliação")
+        with col_no:
+            if st.button("❌ Revisar", use_container_width=True):
+                st.session_state.confirmar_avaliacao = False
+                st.rerun()
 
 # ===== MAIN APP =====
 if not st.session_state.logged_in:
