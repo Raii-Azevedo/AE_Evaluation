@@ -128,6 +128,13 @@ def init_db():
     )
     """)
 
+    # Migração: adicionar colunas que podem estar faltando em bancos antigos
+    adicionar_coluna_se_nao_existe(cursor, 'avaliacoes', 'aplicacao_id', 'INTEGER REFERENCES aplicacoes(id) ON DELETE CASCADE')
+    adicionar_coluna_se_nao_existe(cursor, 'avaliacoes', 'priorizacao', 'TEXT', "'Não priorizar'")
+    adicionar_coluna_se_nao_existe(cursor, 'avaliacoes', 'gh_atualizada', 'BOOLEAN', 'FALSE')
+    adicionar_coluna_se_nao_existe(cursor, 'avaliacoes', 'data_avaliacao', 'TIMESTAMP')
+    conn.commit()
+
     # ===== TABELA AVALIACOES_CRITERIOS =====
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS avaliacoes_criterios (
