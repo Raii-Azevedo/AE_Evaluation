@@ -2,6 +2,10 @@ import os
 from pathlib import Path
 
 import dj_database_url
+from dotenv import load_dotenv
+
+# Carrega o .env em desenvolvimento local (no Railway as variáveis já vêm do ambiente)
+load_dotenv()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
