@@ -123,10 +123,17 @@ def processo_detail(request, processo_id):
         ultima = app.avaliacoes.order_by("-data_avaliacao").first()
         rows.append({"app": app, "avaliacao": ultima})
 
-    stats = Aplicacao.objects.filter(processo=processo).aggregate(
-        pendentes=Count("id", filter=Q(avaliacoes__isnull=True), distinct=True),
-        avaliados=Count("id", filter=Q(avaliacoes__isnull=False), distinct=True),
+    total_apps = Aplicacao.objects.filter(processo=processo).count()
+    ids_avaliados = (
+        Avaliacao.objects.filter(aplicacao__processo=processo)
+        .values_list("aplicacao_id", flat=True)
+        .distinct()
     )
+    n_avaliados = ids_avaliados.count()
+    stats = {
+        "pendentes": total_apps - n_avaliados,
+        "avaliados": n_avaliados,
+    }
 
     context = {
         "processo": processo,
