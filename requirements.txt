@@ -8,3 +8,5 @@ gspread
 google-auth
 google-auth-oauthlib
 google-auth-httplib2
+Django>=5.0,<6.0
+dj-database-url>=2.2.0

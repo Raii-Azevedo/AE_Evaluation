@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="card" style="max-width:420px; margin:40px auto;">
+  <h2>Entrar com email</h2>
+  <p>Informe apenas o email. O acesso e liberado somente se ele estiver em allowed_emails.</p>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">Entrar</button>
+  </form>
+</div>
+{% endblock %}

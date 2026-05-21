@@ -1,5 +1,61 @@
 # Sistema de Avaliação Técnica - Analytics Engineer
 
+## Versão Django (Nova)
+
+Este repositório agora também possui uma implementação em Django, mantendo compatibilidade com o banco PostgreSQL existente (mesmas tabelas principais: `processos`, `candidatos`, `aplicacoes`, `avaliacoes`, `avaliacoes_criterios`, `allowed_emails`).
+
+### Estrutura Django adicionada
+
+- `manage.py`
+- `ae_project/` (settings/urls/wsgi/asgi)
+- `core/` (models/views/forms/urls/admin/migrations)
+- `templates/` (login, dashboard, processo, avaliação, emails)
+
+### Como executar (Django)
+
+1. Instale dependências:
+
+```bash
+pip install -r requirements.txt
+```
+
+2. Configure variável de ambiente do banco:
+
+```bash
+# Exemplo
+set DATABASE_URL=postgres://usuario:senha@host:5432/banco
+```
+
+3. Rode as migrações:
+
+```bash
+python manage.py migrate
+```
+
+4. Crie um usuário admin:
+
+```bash
+python manage.py createsuperuser
+```
+
+5. Inicie o servidor:
+
+```bash
+python manage.py runserver
+```
+
+6. Acesse:
+
+- App: `http://127.0.0.1:8000/`
+- Admin: `http://127.0.0.1:8000/admin/`
+
+### Regras de acesso
+
+- O login usa autenticação padrão do Django (`accounts/login`).
+- Após autenticar, o usuário só acessa o app se o email estiver cadastrado em `allowed_emails` (ou se for superusuário).
+
+---
+
 Sistema web desenvolvido em Streamlit para gerenciar processos seletivos e avaliar candidatos a vagas de Analytics Engineer, com foco em critérios técnicos específicos da área.
 
 ---

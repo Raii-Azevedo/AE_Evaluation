@@ -1,0 +1,73 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="card">
+  <h1>{{ processo.nome }}</h1>
+  <p><strong>Area:</strong> {{ processo.area }} | <strong>Vaga:</strong> {{ processo.job_title }} | <strong>Status:</strong> {{ processo.status }}</p>
+  <p><strong>Pendentes:</strong> {{ stats.pendentes }} | <strong>Avaliados:</strong> {{ stats.avaliados }}</p>
+
+  {% if can_edit %}
+  <form method="post" action="{% url 'toggle_processo' processo.id %}">
+    {% csrf_token %}
+    <button type="submit">Alternar status</button>
+  </form>
+  {% endif %}
+</div>
+
+<div class="card">
+  <a href="?status=todos">Todos</a> |
+  <a href="?status=pendentes">Pendentes</a> |
+  <a href="?status=avaliados">Avaliados</a>
+</div>
+
+{% if can_edit and processo.status == 'Aberto' %}
+<div class="card">
+  <h2>Adicionar candidato</h2>
+  <form method="post" action="{% url 'add_candidato' processo.id %}">
+    {% csrf_token %}
+    {{ candidato_form.as_p }}
+    <button type="submit">Salvar candidato</button>
+  </form>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2>Candidatos</h2>
+  <table>
+    <thead>
+      <tr>
+        <th>Nome</th>
+        <th>Email</th>
+        <th>Nota</th>
+        <th>Priorizacao</th>
+        <th>Acao</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for row in rows %}
+      <tr>
+        <td>{{ row.app.candidato.nome }}</td>
+        <td>{{ row.app.candidato.email }}</td>
+        <td>
+          {% if row.avaliacao %}
+            {{ row.avaliacao.nota_final }}
+          {% else %}
+            Pendente
+          {% endif %}
+        </td>
+        <td>
+          {% if row.avaliacao %}
+            {{ row.avaliacao.priorizacao }}
+          {% else %}
+            -
+          {% endif %}
+        </td>
+        <td><a href="{% url 'avaliar_aplicacao' row.app.id %}">Avaliar</a></td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="5">Sem candidatos neste filtro.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

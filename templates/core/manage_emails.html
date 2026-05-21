@@ -1,0 +1,35 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="card">
+  <h1>Emails autorizados</h1>
+  <form method="post">
+    {% csrf_token %}
+    {{ form.as_p }}
+    <button type="submit">Salvar email</button>
+  </form>
+</div>
+
+<div class="card">
+  <table>
+    <thead><tr><th>Email</th><th>Role</th><th>Adicionado por</th><th></th></tr></thead>
+    <tbody>
+      {% for e in emails %}
+      <tr>
+        <td>{{ e.email }}</td>
+        <td>{{ e.role }}</td>
+        <td>{{ e.added_by }}</td>
+        <td>
+          <form method="post">
+            {% csrf_token %}
+            <button name="delete_email" value="{{ e.id }}" type="submit">Remover</button>
+          </form>
+        </td>
+      </tr>
+      {% empty %}
+      <tr><td colspan="4">Nenhum email cadastrado.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

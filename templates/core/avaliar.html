@@ -1,0 +1,41 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div class="card">
+  <h1>Avaliar candidato</h1>
+  <p><strong>Processo:</strong> {{ aplicacao.processo.nome }}</p>
+  <p><strong>Candidato:</strong> {{ aplicacao.candidato.nome }} ({{ aplicacao.candidato.email }})</p>
+</div>
+
+<form method="post" class="card">
+  {% csrf_token %}
+
+  {% for item in criteria_payload %}
+  <div style="margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #e5e7eb;">
+    <strong>{{ item.bloco }} - {{ item.criterio }}</strong> (peso {{ item.peso }})
+    <label>Nota (0 a 10)</label>
+    <input type="number" min="0" max="10" step="0.5" name="{{ item.field_nota }}" value="{{ item.default_nota }}">
+    <label>Justificativa</label>
+    <textarea name="{{ item.field_just }}" rows="2">{{ item.default_just }}</textarea>
+  </div>
+  {% endfor %}
+
+  <label>Priorizacao</label>
+  <select name="priorizacao">
+    <option>Strong Yes</option>
+    <option>Yes</option>
+    <option>Maybe</option>
+    <option>No</option>
+    <option selected>Não priorizar</option>
+  </select>
+
+  <label>Comentario final</label>
+  <textarea name="comentario_final" rows="4"></textarea>
+
+  <label><input type="checkbox" name="gh_atualizada"> GH atualizada</label>
+
+  <div style="margin-top:12px;">
+    <button type="submit">Salvar avaliacao</button>
+  </div>
+</form>
+{% endblock %}
