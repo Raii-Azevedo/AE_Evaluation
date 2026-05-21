@@ -65,10 +65,8 @@ class Aplicacao(models.Model):
 
 class Avaliacao(models.Model):
     PRIORIZACAO_CHOICES = [
-        ("Strong Yes", "Strong Yes"),
-        ("Yes", "Yes"),
-        ("Maybe", "Maybe"),
-        ("No", "No"),
+        ("Prioridade 1", "Strong Yes"),
+        ("Prioridade 2", "Yes"),
         ("Não priorizar", "Não priorizar"),
     ]
 
