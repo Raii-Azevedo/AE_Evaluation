@@ -1,53 +1,98 @@
 {% extends 'base.html' %}
+{% block title %}Dashboard — AE Evaluation{% endblock %}
 
 {% block content %}
-<div class="card">
-  <h1>Dashboard</h1>
-  <div class="grid">
-    <div class="card"><strong>Processos</strong><br>{{ stats.processos }}</div>
-    <div class="card"><strong>Candidatos</strong><br>{{ stats.candidatos }}</div>
-    <div class="card"><strong>Aplicacoes</strong><br>{{ stats.aplicacoes }}</div>
-    <div class="card"><strong>Avaliacoes</strong><br>{{ stats.avaliacoes }}</div>
-    <div class="card"><strong>Media Geral</strong><br>{{ stats.media|floatformat:2 }}</div>
+
+<!-- Stats -->
+<div class="stats-grid" style="margin-bottom:16px;">
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.processos }}</div>
+    <div class="stat-label">Processos</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.candidatos }}</div>
+    <div class="stat-label">Candidatos</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.aplicacoes }}</div>
+    <div class="stat-label">Aplicações</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.avaliacoes }}</div>
+    <div class="stat-label">Avaliações</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.media|floatformat:1 }}</div>
+    <div class="stat-label">Média Geral</div>
   </div>
 </div>
 
 {% if can_edit %}
+<!-- Criar processo -->
 <div class="card">
-  <h2>Criar processo</h2>
+  <h2>Criar novo processo</h2>
   <form method="post">
     {% csrf_token %}
-    {{ processo_form.as_p }}
-    <button type="submit" name="criar_processo">Criar</button>
+    <div class="form-grid">
+      {% for field in processo_form %}
+        <div class="form-group">
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.errors %}
+            {% for error in field.errors %}
+              <span style="color:#dc2626;font-size:12px;">{{ error }}</span>
+            {% endfor %}
+          {% endif %}
+        </div>
+      {% endfor %}
+    </div>
+    <button type="submit" name="criar_processo" class="btn btn-primary">+ Criar processo</button>
   </form>
 </div>
 {% endif %}
 
+<!-- Tabela de processos -->
 <div class="card">
-  <h2>Processos</h2>
-  <table>
-    <thead>
-      <tr>
-        <th>Nome</th>
-        <th>Area</th>
-        <th>Vaga</th>
-        <th>Status</th>
-        <th></th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for p in processos %}
-      <tr>
-        <td>{{ p.nome }}</td>
-        <td>{{ p.area }}</td>
-        <td>{{ p.job_title }}</td>
-        <td>{{ p.status }}</td>
-        <td><a href="{% url 'processo_detail' p.id %}">Abrir</a></td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="5">Nenhum processo cadastrado.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
+  <div class="card-header">
+    <h2 class="mb-0">Processos</h2>
+    <span class="badge badge-blue">{{ stats.processos }}</span>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead>
+        <tr>
+          <th>Nome</th>
+          <th>Área</th>
+          <th>Vaga</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for p in processos %}
+        <tr>
+          <td><strong>{{ p.nome }}</strong></td>
+          <td>{{ p.area|default:"—" }}</td>
+          <td>{{ p.job_title|default:"—" }}</td>
+          <td>
+            {% if p.status == 'Aberto' %}
+              <span class="badge badge-green">Aberto</span>
+            {% else %}
+              <span class="badge badge-gray">Fechado</span>
+            {% endif %}
+          </td>
+          <td style="text-align:right;">
+            <a href="{% url 'processo_detail' p.id %}" class="link-action">Ver detalhes →</a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr class="table-empty">
+          <td colspan="5">Nenhum processo cadastrado ainda.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 </div>
+
 {% endblock %}

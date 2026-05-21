@@ -78,7 +78,7 @@ class Avaliacao(models.Model):
     comentario_final = models.TextField(blank=True, null=True)
     priorizacao = models.TextField(choices=PRIORIZACAO_CHOICES, default="Não priorizar")
     gh_atualizada = models.BooleanField(default=False)
-    data_avaliacao = models.DateTimeField(auto_now_add=True)
+    data_avaliacao = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "avaliacoes"

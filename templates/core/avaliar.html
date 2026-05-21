@@ -1,41 +1,129 @@
 {% extends 'base.html' %}
+{% block title %}Avaliar {{ aplicacao.candidato.nome }} — AE Evaluation{% endblock %}
 
 {% block content %}
-<div class="card">
-  <h1>Avaliar candidato</h1>
-  <p><strong>Processo:</strong> {{ aplicacao.processo.nome }}</p>
-  <p><strong>Candidato:</strong> {{ aplicacao.candidato.nome }} ({{ aplicacao.candidato.email }})</p>
+
+<a href="{% url 'processo_detail' aplicacao.processo.id %}" class="back-link">← {{ aplicacao.processo.nome }}</a>
+
+<!-- Cabeçalho -->
+<div class="card" style="margin-bottom:12px;">
+  <div class="flex-between">
+    <div>
+      <h1 style="margin-bottom:4px;">{{ aplicacao.candidato.nome }}</h1>
+      <div class="section-meta">
+        <span>✉ {{ aplicacao.candidato.email }}</span>
+        <span>📂 {{ aplicacao.processo.nome }}</span>
+        {% if aplicacao.candidato.linkedin %}
+          <span><a href="{{ aplicacao.candidato.linkedin }}" target="_blank" rel="noopener">LinkedIn ↗</a></span>
+        {% endif %}
+        {% if aplicacao.pbix_file %}
+          <span><a href="{{ aplicacao.pbix_file }}" target="_blank" rel="noopener">Arquivo PBIX ↗</a></span>
+        {% endif %}
+        {% if aplicacao.optional_file %}
+          <span><a href="{{ aplicacao.optional_file }}" target="_blank" rel="noopener">Arquivo opcional ↗</a></span>
+        {% endif %}
+      </div>
+    </div>
+    {% if ultima %}
+    <div style="text-align:right;flex-shrink:0;">
+      <div style="font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;font-weight:600;">Nota atual</div>
+      {% with nota=ultima.nota_final %}
+        {% if nota >= 7 %}
+          <div style="font-size:28px;font-weight:800;" class="score-high">{{ nota }}</div>
+        {% elif nota >= 5 %}
+          <div style="font-size:28px;font-weight:800;" class="score-mid">{{ nota }}</div>
+        {% else %}
+          <div style="font-size:28px;font-weight:800;" class="score-low">{{ nota }}</div>
+        {% endif %}
+      {% endwith %}
+    </div>
+    {% endif %}
+  </div>
 </div>
 
-<form method="post" class="card">
+<!-- Formulário de avaliação -->
+<form method="post">
   {% csrf_token %}
 
-  {% for item in criteria_payload %}
-  <div style="margin-bottom:12px; padding-bottom:12px; border-bottom:1px solid #e5e7eb;">
-    <strong>{{ item.bloco }} - {{ item.criterio }}</strong> (peso {{ item.peso }})
-    <label>Nota (0 a 10)</label>
-    <input type="number" min="0" max="10" step="0.5" name="{{ item.field_nota }}" value="{{ item.default_nota }}">
-    <label>Justificativa</label>
-    <textarea name="{{ item.field_just }}" rows="2">{{ item.default_just }}</textarea>
+  <!-- Critérios agrupados por bloco -->
+  {% regroup criteria_payload by bloco as bloco_list %}
+  {% for bloco_group in bloco_list %}
+  <div class="card bloco-section" style="margin-bottom:12px;">
+    <div class="bloco-header">{{ bloco_group.grouper }}</div>
+    {% for item in bloco_group.list %}
+    <div class="criterio-row">
+      <div class="criterio-title">
+        <span>{{ item.criterio }}</span>
+        <span class="peso-badge">peso {{ item.peso }}</span>
+      </div>
+      <div class="criterio-inputs">
+        <div>
+          <label for="{{ item.field_nota }}">Nota (0–10)</label>
+          <input
+            type="number"
+            id="{{ item.field_nota }}"
+            name="{{ item.field_nota }}"
+            min="0" max="10" step="0.5"
+            value="{{ item.default_nota }}"
+            style="font-size:18px;font-weight:700;text-align:center;"
+          >
+        </div>
+        <div>
+          <label for="{{ item.field_just }}">Justificativa</label>
+          <textarea
+            id="{{ item.field_just }}"
+            name="{{ item.field_just }}"
+            rows="2"
+            placeholder="Descreva sua avaliação para este critério..."
+          >{{ item.default_just }}</textarea>
+        </div>
+      </div>
+    </div>
+    {% endfor %}
   </div>
   {% endfor %}
 
-  <label>Priorizacao</label>
-  <select name="priorizacao">
-    <option>Strong Yes</option>
-    <option>Yes</option>
-    <option>Maybe</option>
-    <option>No</option>
-    <option selected>Não priorizar</option>
-  </select>
+  <!-- Resumo final -->
+  <div class="card">
+    <h2>Resumo da avaliação</h2>
 
-  <label>Comentario final</label>
-  <textarea name="comentario_final" rows="4"></textarea>
+    <div class="form-grid" style="margin-bottom:14px;">
+      <div class="form-group">
+        <label for="priorizacao">Priorização</label>
+        <select name="priorizacao" id="priorizacao">
+          <option value="Strong Yes" {% if ultima.priorizacao == 'Strong Yes' %}selected{% endif %}>Strong Yes</option>
+          <option value="Yes" {% if ultima.priorizacao == 'Yes' %}selected{% endif %}>Yes</option>
+          <option value="Maybe" {% if ultima.priorizacao == 'Maybe' %}selected{% endif %}>Maybe</option>
+          <option value="No" {% if ultima.priorizacao == 'No' %}selected{% endif %}>No</option>
+          <option value="Não priorizar" {% if not ultima or ultima.priorizacao == 'Não priorizar' %}selected{% endif %}>Não priorizar</option>
+        </select>
+      </div>
+    </div>
 
-  <label><input type="checkbox" name="gh_atualizada"> GH atualizada</label>
+    <div class="form-group">
+      <label for="comentario_final">Comentário final</label>
+      <textarea name="comentario_final" id="comentario_final" rows="4" placeholder="Observações gerais sobre o candidato...">{% if ultima %}{{ ultima.comentario_final }}{% endif %}</textarea>
+    </div>
 
-  <div style="margin-top:12px;">
-    <button type="submit">Salvar avaliacao</button>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px;">
+      <input
+        type="checkbox"
+        name="gh_atualizada"
+        id="gh_atualizada"
+        {% if ultima and ultima.gh_atualizada %}checked{% endif %}
+      >
+      <label for="gh_atualizada" style="text-transform:none;letter-spacing:0;font-size:13px;color:var(--text);font-weight:500;margin-bottom:0;">
+        GH atualizada
+      </label>
+    </div>
+
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <button type="submit" class="btn btn-primary">
+        {% if ultima %}Atualizar avaliação{% else %}Salvar avaliação{% endif %}
+      </button>
+      <a href="{% url 'processo_detail' aplicacao.processo.id %}" class="btn btn-ghost">Cancelar</a>
+    </div>
   </div>
 </form>
+
 {% endblock %}

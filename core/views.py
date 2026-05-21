@@ -1,3 +1,4 @@
+import functools
 from decimal import Decimal
 
 from django.contrib import messages
@@ -32,9 +33,10 @@ def _is_admin(user):
 
 def allowed_email_required(view_func):
     @login_required
+    @functools.wraps(view_func)
     def _wrapped(request, *args, **kwargs):
         if not AllowedEmail.objects.filter(email__iexact=(request.user.email or "")).exists() and not request.user.is_superuser:
-            messages.error(request, "Seu email nao esta autorizado.")
+            messages.error(request, "Seu email não está autorizado.")
             logout(request)
             return redirect("login")
         return view_func(request, *args, **kwargs)
@@ -274,7 +276,6 @@ def avaliar_aplicacao(request, aplicacao_id):
                 avaliacao.comentario_final = comentario
                 avaliacao.priorizacao = priorizacao
                 avaliacao.gh_atualizada = gh_atualizada
-                avaliacao.data_avaliacao = timezone.now()
                 avaliacao.save()
                 avaliacao.criterios.all().delete()
             else:
@@ -307,6 +308,7 @@ def avaliar_aplicacao(request, aplicacao_id):
         "aplicacao": aplicacao,
         "criteria_payload": criteria_payload,
         "existing_map": existing_map,
+        "ultima": ultima,
     }
     return render(request, "core/avaliar.html", context)
 

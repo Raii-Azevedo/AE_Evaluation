@@ -3,40 +3,381 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>AE Evaluation - Django</title>
+  <title>{% block title %}AE Evaluation{% endblock %}</title>
   <style>
-    body { font-family: Segoe UI, sans-serif; margin: 0; background: #f4f7fb; color: #1f2937; }
-    nav { background: #0f172a; color: #fff; padding: 12px 20px; display: flex; justify-content: space-between; }
-    nav a { color: #fff; margin-right: 12px; text-decoration: none; }
-    .container { max-width: 1100px; margin: 20px auto; padding: 0 16px; }
-    .card { background: #fff; border-radius: 10px; padding: 16px; margin-bottom: 16px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
-    .badge { display: inline-block; padding: 4px 8px; border-radius: 999px; font-size: 12px; }
-    .ok { background: #dcfce7; color: #166534; }
-    .warn { background: #fef3c7; color: #92400e; }
-    .danger { background: #fee2e2; color: #991b1b; }
+    :root {
+      --primary: #2563eb;
+      --primary-dark: #1d4ed8;
+      --primary-light: #dbeafe;
+      --surface: #ffffff;
+      --bg: #f1f5f9;
+      --bg-subtle: #f8fafc;
+      --border: #e2e8f0;
+      --border-strong: #cbd5e1;
+      --text: #1e293b;
+      --text-muted: #64748b;
+      --text-faint: #94a3b8;
+      --radius: 10px;
+      --radius-sm: 6px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.07), 0 4px 12px rgba(0,0,0,0.04);
+      --shadow-sm: 0 1px 2px rgba(0,0,0,0.06);
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    body {
+      font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    /* ── NAV ── */
+    nav {
+      background: #0f172a;
+      color: #fff;
+      padding: 0 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      height: 52px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+    }
+    .nav-left { display: flex; align-items: center; gap: 24px; }
+    .nav-brand { font-weight: 700; font-size: 15px; color: #fff; text-decoration: none; letter-spacing: -0.3px; }
+    .nav-brand span { color: #60a5fa; }
+    .nav-links { display: flex; gap: 4px; }
+    .nav-links a {
+      color: #94a3b8;
+      padding: 6px 10px;
+      border-radius: var(--radius-sm);
+      text-decoration: none;
+      font-size: 13px;
+      transition: color .15s, background .15s;
+    }
+    .nav-links a:hover { color: #fff; background: rgba(255,255,255,0.07); }
+    .nav-right { color: #94a3b8; font-size: 13px; display: flex; align-items: center; gap: 8px; }
+    .nav-right a { color: #94a3b8; text-decoration: none; transition: color .15s; }
+    .nav-right a:hover { color: #fff; }
+    .nav-divider { color: #334155; }
+
+    /* ── LAYOUT ── */
+    .container { max-width: 1140px; margin: 28px auto; padding: 0 20px; }
+
+    /* ── CARD ── */
+    .card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin-bottom: 16px;
+      box-shadow: var(--shadow);
+      border: 1px solid var(--border);
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      gap: 12px;
+    }
+    .card h1 { margin: 0; font-size: 22px; font-weight: 700; letter-spacing: -0.3px; }
+    .card h2 { margin: 0 0 14px; font-size: 15px; font-weight: 600; }
+    .card h3 { margin: 0 0 10px; font-size: 13px; font-weight: 700; color: var(--primary); text-transform: uppercase; letter-spacing: .5px; }
+
+    /* ── STATS GRID ── */
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 12px;
+    }
+    .stat-card {
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 20px;
+      text-align: center;
+    }
+    .stat-value { font-size: 30px; font-weight: 800; color: var(--primary); line-height: 1; letter-spacing: -1px; }
+    .stat-label { font-size: 11px; color: var(--text-muted); margin-top: 5px; text-transform: uppercase; letter-spacing: .5px; font-weight: 600; }
+
+    /* ── TABLE ── */
+    .table-wrapper { overflow-x: auto; margin: 0 -4px; }
     table { width: 100%; border-collapse: collapse; }
-    th, td { text-align: left; border-bottom: 1px solid #e5e7eb; padding: 8px; }
-    input, select, textarea { width: 100%; padding: 8px; margin: 6px 0; border-radius: 8px; border: 1px solid #d1d5db; box-sizing: border-box; }
-    button { background: #2563eb; border: none; color: #fff; padding: 8px 12px; border-radius: 8px; cursor: pointer; }
-    .messages { list-style: none; padding: 0; }
-    .messages li { background: #e0f2fe; padding: 10px; border-radius: 8px; margin-bottom: 8px; }
+    thead { background: var(--bg-subtle); }
+    th {
+      text-align: left;
+      padding: 10px 14px;
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      border-bottom: 1px solid var(--border-strong);
+      white-space: nowrap;
+    }
+    td {
+      text-align: left;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      vertical-align: middle;
+    }
+    tr:last-child td { border-bottom: none; }
+    tbody tr { transition: background .1s; }
+    tbody tr:hover { background: var(--bg-subtle); }
+    .table-empty td { text-align: center; color: var(--text-muted); padding: 32px; font-size: 13px; }
+
+    /* ── FORMS ── */
+    .form-group { margin-bottom: 14px; }
+    .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-muted);
+      margin-bottom: 5px;
+      text-transform: uppercase;
+      letter-spacing: .4px;
+    }
+    /* Override Django's default label styling from as_p */
+    p > label { text-transform: uppercase; font-size: 12px; font-weight: 600; color: var(--text-muted); letter-spacing: .4px; }
+    input[type=text], input[type=email], input[type=number], input[type=url],
+    select, textarea {
+      width: 100%;
+      padding: 9px 12px;
+      border-radius: 8px;
+      border: 1px solid var(--border-strong);
+      background: #fff;
+      color: var(--text);
+      font-size: 14px;
+      font-family: inherit;
+      transition: border-color .15s, box-shadow .15s;
+      margin: 0;
+    }
+    input:focus, select:focus, textarea:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37,99,235,.12);
+    }
+    input[type=checkbox] { width: auto; margin-right: 6px; accent-color: var(--primary); }
+
+    /* ── BUTTONS ── */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 9px 18px;
+      border-radius: 8px;
+      border: none;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all .15s;
+      text-decoration: none;
+      font-family: inherit;
+      line-height: 1;
+      white-space: nowrap;
+    }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-primary:hover { background: var(--primary-dark); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(37,99,235,.3); }
+    .btn-danger { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    .btn-danger:hover { background: #fecaca; }
+    .btn-secondary { background: var(--surface); color: var(--text); border: 1px solid var(--border-strong); }
+    .btn-secondary:hover { background: var(--bg-subtle); }
+    .btn-ghost { background: transparent; color: var(--text-muted); border: 1px solid var(--border); }
+    .btn-ghost:hover { background: var(--bg-subtle); color: var(--text); }
+    .btn-sm { padding: 5px 12px; font-size: 12px; border-radius: 6px; }
+    /* Legacy: plain <button> still works */
+    button { background: var(--primary); border: none; color: #fff; padding: 9px 18px; border-radius: 8px; cursor: pointer; font-size: 13px; font-weight: 600; font-family: inherit; transition: all .15s; }
+    button:hover { background: var(--primary-dark); }
+
+    /* ── BADGES ── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .3px;
+      white-space: nowrap;
+    }
+    .badge-green  { background: #dcfce7; color: #166534; }
+    .badge-red    { background: #fee2e2; color: #991b1b; }
+    .badge-yellow { background: #fef9c3; color: #854d0e; }
+    .badge-blue   { background: #dbeafe; color: #1e40af; }
+    .badge-gray   { background: #f1f5f9; color: #475569; }
+    .badge-purple { background: #f3e8ff; color: #7e22ce; }
+    .badge-orange { background: #ffedd5; color: #9a3412; }
+
+    /* ── MESSAGES ── */
+    .messages { list-style: none; padding: 0; margin: 0 0 16px; }
+    .messages li {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 12px 16px;
+      border-radius: 8px;
+      margin-bottom: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      border-width: 1px;
+      border-style: solid;
+    }
+    .messages li::before { font-size: 15px; flex-shrink: 0; margin-top: 1px; }
+    .messages li.success  { background: #f0fdf4; color: #166534; border-color: #86efac; }
+    .messages li.success::before { content: "✓"; }
+    .messages li.error    { background: #fef2f2; color: #991b1b; border-color: #fca5a5; }
+    .messages li.error::before { content: "✕"; }
+    .messages li.warning  { background: #fffbeb; color: #854d0e; border-color: #fde047; }
+    .messages li.warning::before { content: "⚠"; }
+    .messages li.info, .messages li:not([class]) {
+      background: #eff6ff; color: #1e40af; border-color: #93c5fd;
+    }
+    .messages li.info::before, .messages li:not([class])::before { content: "ℹ"; }
+
+    /* ── FILTER TABS ── */
+    .filter-tabs { display: flex; gap: 6px; flex-wrap: wrap; }
+    .filter-tabs a {
+      display: inline-block;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      text-decoration: none;
+      color: var(--text-muted);
+      background: var(--bg-subtle);
+      border: 1px solid var(--border);
+      transition: all .15s;
+    }
+    .filter-tabs a:hover { color: var(--primary); border-color: var(--primary); background: var(--primary-light); }
+    .filter-tabs a.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+
+    /* ── SCORE COLORS ── */
+    .score { font-weight: 700; font-size: 14px; }
+    .score-high  { color: #16a34a; }
+    .score-mid   { color: #d97706; }
+    .score-low   { color: #dc2626; }
+    .score-none  { color: var(--text-faint); font-style: italic; font-weight: 400; }
+
+    /* ── BLOCO / CRITERIA LAYOUT ── */
+    .bloco-section { margin-bottom: 24px; }
+    .bloco-header {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--primary);
+      text-transform: uppercase;
+      letter-spacing: .6px;
+      margin-bottom: 10px;
+      padding: 8px 14px;
+      background: var(--primary-light);
+      border-radius: 6px;
+      border-left: 3px solid var(--primary);
+    }
+    .criterio-row {
+      padding: 14px 16px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      background: var(--bg-subtle);
+      transition: border-color .15s;
+    }
+    .criterio-row:focus-within { border-color: var(--primary); background: #fff; }
+    .criterio-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 10px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 8px;
+    }
+    .criterio-inputs { display: grid; grid-template-columns: 140px 1fr; gap: 10px; align-items: start; }
+    .peso-badge {
+      font-size: 11px;
+      font-weight: 600;
+      background: #e0e7ff;
+      color: #3730a3;
+      padding: 2px 8px;
+      border-radius: 999px;
+      flex-shrink: 0;
+    }
+
+    /* ── LINKS ── */
+    a { color: var(--primary); }
+    a:hover { color: var(--primary-dark); }
+    .link-action {
+      color: var(--primary);
+      font-weight: 600;
+      font-size: 13px;
+      text-decoration: none;
+      padding: 5px 10px;
+      border-radius: 6px;
+      transition: background .15s;
+    }
+    .link-action:hover { background: var(--primary-light); }
+
+    /* ── BACK LINK ── */
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      margin-bottom: 14px;
+      transition: color .15s;
+    }
+    .back-link:hover { color: var(--text); }
+
+    /* ── SECTION DIVIDER ── */
+    .section-meta { font-size: 13px; color: var(--text-muted); display: flex; flex-wrap: wrap; gap: 16px; margin-top: 4px; }
+    .section-meta span { display: flex; align-items: center; gap: 4px; }
+
+    /* ── UTILS ── */
+    .text-muted { color: var(--text-muted); }
+    .text-sm { font-size: 12px; }
+    .mt-0 { margin-top: 0; }
+    .mb-0 { margin-bottom: 0; }
+    .flex { display: flex; }
+    .flex-between { display: flex; justify-content: space-between; align-items: center; }
+    .gap-2 { gap: 8px; }
+
+    /* ── RESPONSIVE ── */
+    @media (max-width: 640px) {
+      .container { padding: 0 12px; margin-top: 16px; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .criterio-inputs { grid-template-columns: 1fr; }
+      nav { padding: 0 14px; }
+      .nav-links a { padding: 6px 6px; font-size: 12px; }
+    }
   </style>
 </head>
 <body>
   <nav>
-    <div>
-      <a href="{% url 'home' %}">Home</a>
-      <a href="/admin/">Admin</a>
-      {% if can_manage_emails %}
-      <a href="{% url 'manage_emails' %}">Emails</a>
-      {% endif %}
+    <div class="nav-left">
+      <a href="{% url 'home' %}" class="nav-brand">AE <span>Evaluation</span></a>
+      <div class="nav-links">
+        <a href="{% url 'home' %}">Dashboard</a>
+        <a href="/admin/">Admin</a>
+        {% if can_manage_emails %}
+        <a href="{% url 'manage_emails' %}">Emails</a>
+        {% endif %}
+      </div>
     </div>
-    <div>
+    <div class="nav-right">
       {% if user.is_authenticated %}
-      {{ user.email }} | <a href="{% url 'logout' %}">Sair</a>
+        <span>{{ user.email }}</span>
+        <span class="nav-divider">·</span>
+        <a href="{% url 'logout' %}">Sair</a>
       {% else %}
-      <a href="{% url 'login' %}">Entrar</a>
+        <a href="{% url 'login' %}">Entrar</a>
       {% endif %}
     </div>
   </nav>
@@ -45,7 +386,7 @@
     {% if messages %}
       <ul class="messages">
         {% for message in messages %}
-          <li>{{ message }}</li>
+          <li class="{{ message.tags }}">{{ message }}</li>
         {% endfor %}
       </ul>
     {% endif %}

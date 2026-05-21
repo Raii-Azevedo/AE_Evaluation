@@ -1,35 +1,101 @@
 {% extends 'base.html' %}
+{% block title %}E-mails Autorizados — AE Evaluation{% endblock %}
 
 {% block content %}
-<div class="card">
-  <h1>Emails autorizados</h1>
-  <form method="post">
-    {% csrf_token %}
-    {{ form.as_p }}
-    <button type="submit">Salvar email</button>
-  </form>
+
+<a href="{% url 'home' %}" class="back-link">← Dashboard</a>
+
+<div style="display:grid;grid-template-columns:340px 1fr;gap:16px;align-items:start;">
+
+  <!-- Formulário de adição -->
+  <div class="card">
+    <h2>Autorizar e-mail</h2>
+    <form method="post">
+      {% csrf_token %}
+      {% for field in form %}
+        <div class="form-group">
+          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+          {{ field }}
+          {% if field.errors %}
+            {% for error in field.errors %}
+              <span style="color:#dc2626;font-size:12px;display:block;margin-top:3px;">{{ error }}</span>
+            {% endfor %}
+          {% endif %}
+        </div>
+      {% endfor %}
+      <button type="submit" class="btn btn-primary">+ Salvar e-mail</button>
+    </form>
+
+    <div style="margin-top:20px;padding-top:16px;border-top:1px solid var(--border);">
+      <p style="font-size:12px;color:var(--text-muted);margin:0;line-height:1.6;">
+        <strong>admin</strong> — pode criar processos, avaliar e gerenciar e-mails.<br>
+        <strong>user</strong> — pode criar processos e avaliar candidatos.<br>
+        <strong>viewer</strong> — somente leitura.
+      </p>
+    </div>
+  </div>
+
+  <!-- Lista de e-mails -->
+  <div class="card">
+    <div class="card-header">
+      <h2 class="mb-0">E-mails autorizados</h2>
+      <span class="badge badge-blue">{{ emails|length }}</span>
+    </div>
+    <div class="table-wrapper">
+      <table>
+        <thead>
+          <tr>
+            <th>E-mail</th>
+            <th>Role</th>
+            <th>Adicionado por</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for e in emails %}
+          <tr>
+            <td><strong>{{ e.email }}</strong></td>
+            <td>
+              {% if e.role == 'admin' %}
+                <span class="badge badge-purple">admin</span>
+              {% elif e.role == 'user' %}
+                <span class="badge badge-blue">user</span>
+              {% else %}
+                <span class="badge badge-gray">viewer</span>
+              {% endif %}
+            </td>
+            <td style="color:var(--text-muted);font-size:12px;">{{ e.added_by|default:"—" }}</td>
+            <td style="text-align:right;">
+              <form method="post" style="margin:0;" onsubmit="return confirm('Remover {{ e.email }}?');">
+                {% csrf_token %}
+                <button
+                  name="delete_email"
+                  value="{{ e.id }}"
+                  type="submit"
+                  class="btn btn-danger btn-sm"
+                >Remover</button>
+              </form>
+            </td>
+          </tr>
+          {% empty %}
+          <tr class="table-empty">
+            <td colspan="4">Nenhum e-mail autorizado cadastrado.</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
 </div>
 
-<div class="card">
-  <table>
-    <thead><tr><th>Email</th><th>Role</th><th>Adicionado por</th><th></th></tr></thead>
-    <tbody>
-      {% for e in emails %}
-      <tr>
-        <td>{{ e.email }}</td>
-        <td>{{ e.role }}</td>
-        <td>{{ e.added_by }}</td>
-        <td>
-          <form method="post">
-            {% csrf_token %}
-            <button name="delete_email" value="{{ e.id }}" type="submit">Remover</button>
-          </form>
-        </td>
-      </tr>
-      {% empty %}
-      <tr><td colspan="4">Nenhum email cadastrado.</td></tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+<!-- Responsivo: stacked em mobile -->
+<style>
+  @media (max-width: 720px) {
+    div[style*="grid-template-columns:340px"] {
+      grid-template-columns: 1fr !important;
+    }
+  }
+</style>
+
 {% endblock %}
