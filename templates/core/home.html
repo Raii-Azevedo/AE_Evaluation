@@ -4,7 +4,7 @@
 {% block content %}
 
 <!-- Stats -->
-<div class="stats-grid" style="margin-bottom:16px;">
+<div class="stats-grid" style="margin-bottom:20px;">
   <div class="stat-card">
     <div class="stat-value">{{ stats.processos }}</div>
     <div class="stat-label">Processos</div>
@@ -28,35 +28,106 @@
 </div>
 
 {% if can_edit %}
-<!-- Criar processo -->
-<div class="card">
-  <h2>Criar novo processo</h2>
-  <form method="post">
-    {% csrf_token %}
-    <div class="form-grid">
-      {% for field in processo_form %}
-        <div class="form-group">
-          <label for="{{ field.id_for_label }}">{{ field.label }}</label>
-          {{ field }}
-          {% if field.errors %}
-            {% for error in field.errors %}
-              <span style="color:#dc2626;font-size:12px;">{{ error }}</span>
-            {% endfor %}
+<!-- Criar processo — painel colapsável -->
+<div class="card" style="margin-bottom:16px;padding:0;overflow:hidden;">
+
+  <!-- Cabeçalho clicável -->
+  <button
+    type="button"
+    onclick="toggleForm()"
+    id="toggle-btn"
+    style="
+      width:100%; display:flex; justify-content:space-between; align-items:center;
+      padding:18px 26px; background:transparent; border:none; cursor:pointer;
+      color:#fff; font-size:15px; font-weight:700; box-shadow:none;
+      border-radius:16px; transform:none;
+    "
+  >
+    <span style="display:flex;align-items:center;gap:10px;">
+      <span style="
+        background:linear-gradient(135deg,#667eea,#764ba2);
+        border-radius:8px; width:30px; height:30px;
+        display:inline-flex; align-items:center; justify-content:center;
+        font-size:16px; flex-shrink:0;
+      ">+</span>
+      Novo processo seletivo
+    </span>
+    <span id="toggle-icon" style="color:rgba(255,255,255,0.4);font-size:18px;transition:transform .25s;">▾</span>
+  </button>
+
+  <!-- Formulário colapsável -->
+  <div id="form-panel" style="display:none; border-top:1px solid rgba(255,255,255,0.08);">
+    <form method="post" style="padding:22px 26px 26px;">
+      {% csrf_token %}
+
+      <!-- Linha 1: Nome (campo largo) -->
+      <div class="form-group" style="margin-bottom:16px;">
+        <label for="{{ processo_form.nome.id_for_label }}">Nome do processo</label>
+        {{ processo_form.nome }}
+        {% if processo_form.nome.errors %}
+          <span style="color:#f87171;font-size:12px;">{{ processo_form.nome.errors.0 }}</span>
+        {% endif %}
+      </div>
+
+      <!-- Linha 2: três campos lado a lado -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label for="{{ processo_form.area.id_for_label }}">Área</label>
+          {{ processo_form.area }}
+          {% if processo_form.area.errors %}
+            <span style="color:#f87171;font-size:12px;">{{ processo_form.area.errors.0 }}</span>
           {% endif %}
         </div>
-      {% endfor %}
-    </div>
-    <button type="submit" name="criar_processo" class="btn btn-primary">+ Criar processo</button>
-  </form>
+        <div class="form-group" style="margin-bottom:0;">
+          <label for="{{ processo_form.senioridade.id_for_label }}">Senioridade</label>
+          {{ processo_form.senioridade }}
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label for="{{ processo_form.job_title.id_for_label }}">Job title</label>
+          {{ processo_form.job_title }}
+        </div>
+      </div>
+
+      <!-- Linha 3: dois campos -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:22px;">
+        <div class="form-group" style="margin-bottom:0;">
+          <label for="{{ processo_form.admission_category.id_for_label }}">Categoria</label>
+          {{ processo_form.admission_category }}
+        </div>
+        <div class="form-group" style="margin-bottom:0;">
+          <label for="{{ processo_form.local.id_for_label }}">Local</label>
+          {{ processo_form.local }}
+        </div>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;">
+        <button type="submit" name="criar_processo">Criar processo</button>
+        <button type="button" onclick="toggleForm()" style="background:rgba(255,255,255,0.08);box-shadow:none;color:rgba(255,255,255,0.6);">Cancelar</button>
+      </div>
+    </form>
+  </div>
 </div>
+
+<script>
+  function toggleForm() {
+    const panel = document.getElementById('form-panel');
+    const icon  = document.getElementById('toggle-icon');
+    const open  = panel.style.display === 'none';
+    panel.style.display = open ? 'block' : 'none';
+    icon.style.transform = open ? 'rotate(180deg)' : 'rotate(0deg)';
+  }
+  // Abre automaticamente se o form tiver erros
+  {% if processo_form.errors %}toggleForm();{% endif %}
+</script>
 {% endif %}
 
-<!-- Tabela de processos -->
+<!-- Lista de processos -->
 <div class="card">
   <div class="card-header">
-    <h2 class="mb-0">Processos</h2>
-    <span class="badge badge-blue">{{ stats.processos }}</span>
+    <h2 class="mb-0">Processos seletivos</h2>
+    <span class="badge badge-purple">{{ stats.processos }}</span>
   </div>
+
   <div class="table-wrapper">
     <table>
       <thead>
@@ -71,14 +142,14 @@
       <tbody>
         {% for p in processos %}
         <tr>
-          <td><strong>{{ p.nome }}</strong></td>
+          <td><strong style="color:#fff;">{{ p.nome }}</strong></td>
           <td>{{ p.area|default:"—" }}</td>
           <td>{{ p.job_title|default:"—" }}</td>
           <td>
             {% if p.status == 'Aberto' %}
-              <span class="badge badge-green">Aberto</span>
+              <span class="badge badge-green">● Aberto</span>
             {% else %}
-              <span class="badge badge-gray">Fechado</span>
+              <span class="badge badge-gray">● Fechado</span>
             {% endif %}
           </td>
           <td style="text-align:right;">

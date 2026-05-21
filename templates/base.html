@@ -403,10 +403,6 @@
       <a href="{% url 'home' %}" class="nav-brand">AE <span>Evaluation</span></a>
       <div class="nav-links">
         <a href="{% url 'home' %}">Dashboard</a>
-        <a href="/admin/">Admin</a>
-        {% if can_manage_emails %}
-        <a href="{% url 'manage_emails' %}">Emails</a>
-        {% endif %}
       </div>
     </div>
     <div class="nav-right">
