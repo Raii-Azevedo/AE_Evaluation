@@ -95,5 +95,8 @@ LOGIN_REDIRECT_URL = "home"
 LOGOUT_REDIRECT_URL = "login"
 
 AUTHENTICATION_BACKENDS = [
+    # Permite login username+senha no /admin/ para superusers
+    "django.contrib.auth.backends.ModelBackend",
+    # Login via e-mail autorizado para o app custom
     "core.auth_backend.AllowedEmailBackend",
 ]
