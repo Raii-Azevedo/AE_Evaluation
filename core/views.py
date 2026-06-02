@@ -233,30 +233,35 @@ def avaliar_aplicacao(request, aplicacao_id):
 
     estrutura = get_criterios_por_area(aplicacao.processo.area)
     criteria_payload = []
+    blocos_payload = []  # um item por bloco com campo de justificativa
+
+    existing_map = {}
+    bloco_just_map = {}  # bloco -> justificativa existente
+    if ultima:
+        for c in ultima.criterios.all():
+            existing_map[(c.bloco, c.criterio)] = c
+            # pega a justificativa do bloco (primeiro criterio que tiver)
+            if c.bloco not in bloco_just_map and c.justificativa:
+                bloco_just_map[c.bloco] = c.justificativa
 
     for bloco_index, (bloco, criterios) in enumerate(estrutura.items()):
+        blocos_payload.append({
+            "bloco": bloco,
+            "field_just": f"just_bloco_{bloco_index}",
+            "default_just": bloco_just_map.get(bloco, ""),
+        })
         for criterio_index, item in enumerate(criterios):
+            existing = existing_map.get((bloco, item["criterio"]))
             criteria_payload.append(
                 {
                     "bloco": bloco,
+                    "bloco_index": bloco_index,
                     "criterio": item["criterio"],
                     "peso": item["peso"],
                     "field_nota": f"nota_{bloco_index}_{criterio_index}",
-                    "field_just": f"just_{bloco_index}_{criterio_index}",
+                    "default_nota": existing.nota if existing else Decimal("5.0"),
                 }
             )
-
-    existing_map = {}
-    if ultima:
-        existing_map = {
-            (c.bloco, c.criterio): c
-            for c in ultima.criterios.all()
-        }
-
-    for item in criteria_payload:
-        existing = existing_map.get((item["bloco"], item["criterio"]))
-        item["default_nota"] = existing.nota if existing else Decimal("5.0")
-        item["default_just"] = existing.justificativa if existing else ""
 
     if request.method == "POST":
         # Bloquear se finalizada (segurança extra)
@@ -267,6 +272,12 @@ def avaliar_aplicacao(request, aplicacao_id):
         comentario = request.POST.get("comentario_final", "")
         priorizacao = request.POST.get("priorizacao", "Não priorizar")
         gh_atualizada = request.POST.get("gh_atualizada") == "on"
+
+        # justificativas por bloco
+        just_por_bloco = {
+            b["bloco"]: request.POST.get(b["field_just"], "")
+            for b in blocos_payload
+        }
 
         soma = Decimal("0")
         soma_pesos = Decimal("0")
@@ -288,7 +299,7 @@ def avaliar_aplicacao(request, aplicacao_id):
                     "bloco": item["bloco"],
                     "criterio": item["criterio"],
                     "nota": nota,
-                    "justificativa": request.POST.get(item["field_just"], ""),
+                    "justificativa": just_por_bloco.get(item["bloco"], ""),
                 }
             )
 
@@ -339,7 +350,7 @@ def avaliar_aplicacao(request, aplicacao_id):
     context = {
         "aplicacao": aplicacao,
         "criteria_payload": criteria_payload,
-        "existing_map": existing_map,
+        "blocos_payload": blocos_payload,
         "ultima": ultima,
     }
     return render(request, "core/avaliar.html", context)

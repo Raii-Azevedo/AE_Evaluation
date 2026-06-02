@@ -49,6 +49,7 @@
 {% for bloco, criterios in criterios_agrupados.items %}
 <div class="card bloco-section" style="margin-bottom:12px;">
   <div class="bloco-header">{{ bloco }}</div>
+
   {% for c in criterios %}
   <div class="criterio-row" style="cursor:default;">
     <div class="criterio-title">
@@ -66,13 +67,20 @@
         <span style="font-size:11px;color:rgba(255,255,255,0.3);">/ 10</span>
       </div>
     </div>
-    {% if c.justificativa %}
-    <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-top:4px;line-height:1.5;">{{ c.justificativa }}</div>
-    {% else %}
-    <div style="font-size:12px;color:rgba(255,255,255,0.25);font-style:italic;margin-top:4px;">Sem justificativa</div>
-    {% endif %}
   </div>
   {% endfor %}
+
+  <!-- Justificativa do bloco (primeira não-vazia) -->
+  {% with just=criterios.0.justificativa %}
+  <div style="margin-top:10px;padding:12px 14px;background:rgba(0,0,0,0.2);border-radius:8px;border-left:3px solid rgba(59,130,246,0.4);">
+    <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Justificativa</div>
+    {% if just %}
+      <div style="font-size:13px;color:rgba(255,255,255,0.7);line-height:1.6;white-space:pre-wrap;">{{ just }}</div>
+    {% else %}
+      <div style="font-size:12px;color:rgba(255,255,255,0.25);font-style:italic;">Sem justificativa</div>
+    {% endif %}
+  </div>
+  {% endwith %}
 </div>
 {% endfor %}
 

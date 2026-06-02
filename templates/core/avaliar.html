@@ -46,40 +46,40 @@
   {% csrf_token %}
 
   <!-- Critérios agrupados por bloco -->
-  {% regroup criteria_payload by bloco as bloco_list %}
-  {% for bloco_group in bloco_list %}
+  {% for bloco in blocos_payload %}
   <div class="card bloco-section" style="margin-bottom:12px;">
-    <div class="bloco-header">{{ bloco_group.grouper }}</div>
-    {% for item in bloco_group.list %}
+    <div class="bloco-header">{{ bloco.bloco }}</div>
+
+    {% for item in criteria_payload %}{% if item.bloco == bloco.bloco %}
     <div class="criterio-row">
       <div class="criterio-title">
         <span>{{ item.criterio }}</span>
         <span class="peso-badge">peso {{ item.peso }}</span>
       </div>
-      <div class="criterio-inputs">
-        <div>
-          <label for="{{ item.field_nota }}">Nota (0–10)</label>
-          <input
-            type="number"
-            id="{{ item.field_nota }}"
-            name="{{ item.field_nota }}"
-            min="0" max="10" step="0.5"
-            value="{{ item.default_nota }}"
-            style="font-size:18px;font-weight:700;text-align:center;"
-          >
-        </div>
-        <div>
-          <label for="{{ item.field_just }}">Justificativa</label>
-          <textarea
-            id="{{ item.field_just }}"
-            name="{{ item.field_just }}"
-            rows="2"
-            placeholder="Descreva sua avaliação para este critério..."
-          >{{ item.default_just }}</textarea>
-        </div>
+      <div>
+        <label for="{{ item.field_nota }}">Nota (0–10)</label>
+        <input
+          type="number"
+          id="{{ item.field_nota }}"
+          name="{{ item.field_nota }}"
+          min="0" max="10" step="0.5"
+          value="{{ item.default_nota }}"
+          style="font-size:18px;font-weight:700;text-align:center;max-width:120px;"
+        >
       </div>
     </div>
-    {% endfor %}
+    {% endif %}{% endfor %}
+
+    <!-- Justificativa do macrotópico -->
+    <div style="margin-top:14px;">
+      <label for="{{ bloco.field_just }}">Justificativa — {{ bloco.bloco }}</label>
+      <textarea
+        id="{{ bloco.field_just }}"
+        name="{{ bloco.field_just }}"
+        rows="3"
+        placeholder="Descreva sua avaliação geral para este bloco..."
+      >{{ bloco.default_just }}</textarea>
+    </div>
   </div>
   {% endfor %}
 
