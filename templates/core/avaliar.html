@@ -68,6 +68,7 @@
             min="0" max="10" step="0.5"
             value="{{ item.default_nota }}"
             style="font-size:20px;font-weight:800;text-align:center;width:80px;padding:6px 8px;"
+            oninput="this.value=Math.min(10,Math.max(0,parseFloat(this.value)||0))"
           >
         </div>
       </div>
