@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Avaliação — {{ aplicacao.candidato.nome }} — AE Evaluation{% endblock %}
+{% block title %}Avaliação — {{ aplicacao.candidato.nome }} — Artefact Evaluation{% endblock %}
 
 {% block content %}
 
@@ -34,10 +34,10 @@
 </div>
 
 <!-- Banner de avaliação finalizada -->
-<div style="background:rgba(37,99,235,0.12);border:1px solid rgba(59,130,246,0.3);border-radius:10px;padding:12px 18px;margin-bottom:12px;display:flex;align-items:center;gap:10px;">
+<div style="background:var(--orange-dim);border:1px solid rgba(232,69,10,0.3);border-radius:8px;padding:12px 18px;margin-bottom:12px;display:flex;align-items:center;gap:10px;">
   <span style="font-size:16px;">🔒</span>
   <div>
-    <div style="font-size:13px;font-weight:700;color:#93c5fd;">Avaliação finalizada</div>
+    <div style="font-size:13px;font-weight:700;color:#fdba74;">Avaliação finalizada</div>
     <div style="font-size:12px;color:rgba(255,255,255,0.45);">
       Avaliada por <strong style="color:rgba(255,255,255,0.7);">{{ avaliacao.avaliador|default:"—" }}</strong>
       em <strong style="color:rgba(255,255,255,0.7);">{{ avaliacao.data_avaliacao|date:"d/m/Y H:i" }}</strong>
@@ -72,8 +72,8 @@
 
   <!-- Justificativa do bloco (primeira não-vazia) -->
   {% with just=criterios.0.justificativa %}
-  <div style="margin-top:10px;padding:12px 14px;background:rgba(0,0,0,0.2);border-radius:8px;border-left:3px solid rgba(59,130,246,0.4);">
-    <div style="font-size:11px;font-weight:700;color:rgba(255,255,255,0.35);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Justificativa</div>
+  <div style="margin-top:10px;padding:12px 14px;background:var(--bg-raised);border-radius:8px;border-left:3px solid var(--orange);">
+    <div style="font-size:11px;font-weight:700;color:var(--text-faint);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Justificativa</div>
     {% if just %}
       <div style="font-size:13px;color:rgba(255,255,255,0.7);line-height:1.6;white-space:pre-wrap;">{{ just }}</div>
     {% else %}
