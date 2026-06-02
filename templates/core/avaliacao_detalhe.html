@@ -1,0 +1,114 @@
+{% extends 'base.html' %}
+{% block title %}Avaliação — {{ aplicacao.candidato.nome }} — AE Evaluation{% endblock %}
+
+{% block content %}
+
+<a href="{% url 'processo_detail' aplicacao.processo.id %}" class="back-link">← {{ aplicacao.processo.nome }}</a>
+
+<!-- Cabeçalho -->
+<div class="card" style="margin-bottom:12px;">
+  <div class="flex-between">
+    <div>
+      <h1 style="margin-bottom:4px;">{{ aplicacao.candidato.nome }}</h1>
+      <div class="section-meta">
+        <span>✉ {{ aplicacao.candidato.email }}</span>
+        <span>📂 {{ aplicacao.processo.nome }}</span>
+        {% if aplicacao.candidato.linkedin %}
+          <span><a href="{{ aplicacao.candidato.linkedin }}" target="_blank" rel="noopener">LinkedIn ↗</a></span>
+        {% endif %}
+      </div>
+    </div>
+    <div style="text-align:right;flex-shrink:0;">
+      <div style="font-size:11px;color:rgba(255,255,255,0.4);text-transform:uppercase;letter-spacing:.4px;font-weight:600;margin-bottom:4px;">Nota final</div>
+      {% with nota=avaliacao.nota_final %}
+        {% if nota >= 7 %}
+          <div style="font-size:36px;font-weight:800;" class="score-high">{{ nota }}</div>
+        {% elif nota >= 5 %}
+          <div style="font-size:36px;font-weight:800;" class="score-mid">{{ nota }}</div>
+        {% else %}
+          <div style="font-size:36px;font-weight:800;" class="score-low">{{ nota }}</div>
+        {% endif %}
+      {% endwith %}
+    </div>
+  </div>
+</div>
+
+<!-- Banner de avaliação finalizada -->
+<div style="background:rgba(37,99,235,0.12);border:1px solid rgba(59,130,246,0.3);border-radius:10px;padding:12px 18px;margin-bottom:12px;display:flex;align-items:center;gap:10px;">
+  <span style="font-size:16px;">🔒</span>
+  <div>
+    <div style="font-size:13px;font-weight:700;color:#93c5fd;">Avaliação finalizada</div>
+    <div style="font-size:12px;color:rgba(255,255,255,0.45);">
+      Avaliada por <strong style="color:rgba(255,255,255,0.7);">{{ avaliacao.avaliador|default:"—" }}</strong>
+      em <strong style="color:rgba(255,255,255,0.7);">{{ avaliacao.data_avaliacao|date:"d/m/Y H:i" }}</strong>
+    </div>
+  </div>
+</div>
+
+<!-- Critérios por bloco -->
+{% for bloco, criterios in criterios_agrupados.items %}
+<div class="card bloco-section" style="margin-bottom:12px;">
+  <div class="bloco-header">{{ bloco }}</div>
+  {% for c in criterios %}
+  <div class="criterio-row" style="cursor:default;">
+    <div class="criterio-title">
+      <span>{{ c.criterio }}</span>
+      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+        {% with nota=c.nota %}
+          {% if nota >= 7 %}
+            <span style="font-size:18px;font-weight:800;" class="score-high">{{ nota }}</span>
+          {% elif nota >= 5 %}
+            <span style="font-size:18px;font-weight:800;" class="score-mid">{{ nota }}</span>
+          {% else %}
+            <span style="font-size:18px;font-weight:800;" class="score-low">{{ nota }}</span>
+          {% endif %}
+        {% endwith %}
+        <span style="font-size:11px;color:rgba(255,255,255,0.3);">/ 10</span>
+      </div>
+    </div>
+    {% if c.justificativa %}
+    <div style="font-size:13px;color:rgba(255,255,255,0.6);margin-top:4px;line-height:1.5;">{{ c.justificativa }}</div>
+    {% else %}
+    <div style="font-size:12px;color:rgba(255,255,255,0.25);font-style:italic;margin-top:4px;">Sem justificativa</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endfor %}
+
+<!-- Resumo -->
+<div class="card">
+  <h2>Resumo da avaliação</h2>
+  <div class="form-grid" style="margin-bottom:14px;">
+    <div>
+      <label>Priorização</label>
+      <div style="margin-top:4px;">
+        {% with p=avaliacao.priorizacao %}
+          {% if p == 'Strong Yes' %}<span class="badge badge-green">{{ p }}</span>
+          {% elif p == 'Yes' %}<span class="badge badge-blue">{{ p }}</span>
+          {% elif p == 'Maybe' %}<span class="badge badge-yellow">{{ p }}</span>
+          {% elif p == 'No' %}<span class="badge badge-red">{{ p }}</span>
+          {% else %}<span class="badge badge-gray">{{ p }}</span>
+          {% endif %}
+        {% endwith %}
+      </div>
+    </div>
+    <div>
+      <label>GH atualizada</label>
+      <div style="margin-top:6px;font-size:13px;color:rgba(255,255,255,0.8);">
+        {% if avaliacao.gh_atualizada %}✅ Sim{% else %}☐ Não{% endif %}
+      </div>
+    </div>
+  </div>
+  {% if avaliacao.comentario_final %}
+  <div class="form-group">
+    <label>Comentário final</label>
+    <div style="margin-top:6px;font-size:13px;color:rgba(255,255,255,0.75);line-height:1.6;white-space:pre-wrap;">{{ avaliacao.comentario_final }}</div>
+  </div>
+  {% endif %}
+  <div style="margin-top:16px;">
+    <a href="{% url 'processo_detail' aplicacao.processo.id %}" class="btn btn-secondary">← Voltar ao processo</a>
+  </div>
+</div>
+
+{% endblock %}

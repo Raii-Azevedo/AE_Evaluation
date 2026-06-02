@@ -211,6 +211,21 @@ def add_candidato(request, processo_id):
 @allowed_email_required
 def avaliar_aplicacao(request, aplicacao_id):
     aplicacao = get_object_or_404(Aplicacao.objects.select_related("processo", "candidato"), pk=aplicacao_id)
+
+    ultima = aplicacao.avaliacoes.order_by("-data_avaliacao").first()
+
+    # Se avaliação já finalizada, exibir somente leitura
+    if ultima and ultima.finalizada:
+        criterios_agrupados = {}
+        for c in ultima.criterios.all():
+            criterios_agrupados.setdefault(c.bloco, []).append(c)
+        context = {
+            "aplicacao": aplicacao,
+            "avaliacao": ultima,
+            "criterios_agrupados": criterios_agrupados,
+        }
+        return render(request, "core/avaliacao_detalhe.html", context)
+
     if aplicacao.processo.status == Processo.STATUS_FECHADO and not _is_admin(request.user):
         return HttpResponseForbidden("Processo fechado para avaliacao")
     if not _can_edit(request.user):
@@ -231,7 +246,6 @@ def avaliar_aplicacao(request, aplicacao_id):
                 }
             )
 
-    ultima = aplicacao.avaliacoes.order_by("-data_avaliacao").first()
     existing_map = {}
     if ultima:
         existing_map = {
@@ -245,6 +259,11 @@ def avaliar_aplicacao(request, aplicacao_id):
         item["default_just"] = existing.justificativa if existing else ""
 
     if request.method == "POST":
+        # Bloquear se finalizada (segurança extra)
+        if ultima and ultima.finalizada:
+            return HttpResponseForbidden("Avaliacao ja finalizada")
+
+        action = request.POST.get("action", "salvar")
         comentario = request.POST.get("comentario_final", "")
         priorizacao = request.POST.get("priorizacao", "Não priorizar")
         gh_atualizada = request.POST.get("gh_atualizada") == "on"
@@ -274,6 +293,7 @@ def avaliar_aplicacao(request, aplicacao_id):
             )
 
         nota_final = (soma / soma_pesos).quantize(Decimal("0.01")) if soma_pesos else Decimal("0")
+        is_finalizar = action == "finalizar"
 
         with transaction.atomic():
             avaliacao = aplicacao.avaliacoes.order_by("-data_avaliacao").first()
@@ -283,6 +303,7 @@ def avaliar_aplicacao(request, aplicacao_id):
                 avaliacao.comentario_final = comentario
                 avaliacao.priorizacao = priorizacao
                 avaliacao.gh_atualizada = gh_atualizada
+                avaliacao.finalizada = is_finalizar
                 avaliacao.save()
                 avaliacao.criterios.all().delete()
             else:
@@ -293,6 +314,7 @@ def avaliar_aplicacao(request, aplicacao_id):
                     comentario_final=comentario,
                     priorizacao=priorizacao,
                     gh_atualizada=gh_atualizada,
+                    finalizada=is_finalizar,
                 )
 
             AvaliacaoCriterio.objects.bulk_create(
@@ -308,7 +330,10 @@ def avaliar_aplicacao(request, aplicacao_id):
                 ]
             )
 
-        messages.success(request, f"Avaliacao salva com nota final {nota_final}.")
+        if is_finalizar:
+            messages.success(request, f"Avaliação finalizada com nota {nota_final}. Não é possível editar após finalizar.")
+        else:
+            messages.success(request, f"Avaliacao salva com nota final {nota_final}.")
         return redirect("processo_detail", processo_id=aplicacao.processo_id)
 
     context = {

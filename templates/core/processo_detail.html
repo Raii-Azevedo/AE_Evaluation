@@ -142,9 +142,15 @@
             {{ row.avaliacao.avaliador|default:"—" }}
           </td>
           <td style="text-align:right;">
-            <a href="{% url 'avaliar_aplicacao' row.app.id %}" class="link-action">
-              {% if row.avaliacao %}Reeditar{% else %}Avaliar{% endif %} →
-            </a>
+            {% if row.avaliacao and row.avaliacao.finalizada %}
+              <a href="{% url 'avaliar_aplicacao' row.app.id %}" class="link-action" style="color:rgba(255,255,255,0.4);">
+                Ver avaliação →
+              </a>
+            {% else %}
+              <a href="{% url 'avaliar_aplicacao' row.app.id %}" class="link-action">
+                {% if row.avaliacao %}Editar{% else %}Avaliar{% endif %} →
+              </a>
+            {% endif %}
           </td>
         </tr>
         {% empty %}

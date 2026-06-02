@@ -118,11 +118,19 @@
     </div>
 
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-      <button type="submit" class="btn btn-primary">
-        {% if ultima %}Atualizar avaliação{% else %}Salvar avaliação{% endif %}
+      <button type="submit" name="action" value="salvar" class="btn btn-secondary">
+        {% if ultima %}Atualizar rascunho{% else %}Salvar rascunho{% endif %}
+      </button>
+      <button type="submit" name="action" value="finalizar" class="btn btn-primary" onclick="return confirm('Após finalizar, a avaliação não poderá mais ser editada. Confirmar?')">
+        Finalizar avaliação
       </button>
       <a href="{% url 'processo_detail' aplicacao.processo.id %}" class="btn btn-ghost">Cancelar</a>
     </div>
+    {% if ultima %}
+    <p style="margin-top:10px;font-size:12px;color:rgba(255,255,255,0.35);">
+      ⚠ Ao finalizar, a avaliação fica bloqueada para edição.
+    </p>
+    {% endif %}
   </div>
 </form>
 
