@@ -270,7 +270,7 @@ def avaliar_aplicacao(request, aplicacao_id):
 
         action = request.POST.get("action", "salvar")
         comentario = request.POST.get("comentario_final", "")
-        priorizacao = request.POST.get("priorizacao", "Não priorizar")
+        priorizacao = request.POST.get("priorizacao", "Não Priorizar")
         gh_atualizada = request.POST.get("gh_atualizada") == "on"
 
         # justificativas por bloco

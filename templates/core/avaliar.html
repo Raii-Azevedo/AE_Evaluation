@@ -91,11 +91,9 @@
       <div class="form-group">
         <label for="priorizacao">Priorização</label>
         <select name="priorizacao" id="priorizacao">
-          <option value="Strong Yes" {% if ultima.priorizacao == 'Strong Yes' %}selected{% endif %}>Strong Yes</option>
-          <option value="Yes" {% if ultima.priorizacao == 'Yes' %}selected{% endif %}>Yes</option>
-          <option value="Maybe" {% if ultima.priorizacao == 'Maybe' %}selected{% endif %}>Maybe</option>
-          <option value="No" {% if ultima.priorizacao == 'No' %}selected{% endif %}>No</option>
-          <option value="Não priorizar" {% if not ultima or ultima.priorizacao == 'Não priorizar' %}selected{% endif %}>Não priorizar</option>
+          <option value="Prioridade 1" {% if ultima.priorizacao == 'Prioridade 1' %}selected{% endif %}>Prioridade 1</option>
+          <option value="Prioridade 2" {% if ultima.priorizacao == 'Prioridade 2' %}selected{% endif %}>Prioridade 2</option>
+          <option value="Não Priorizar" {% if not ultima or ultima.priorizacao == 'Não Priorizar' %}selected{% endif %}>Não Priorizar</option>
         </select>
       </div>
     </div>

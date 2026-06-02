@@ -65,16 +65,16 @@ class Aplicacao(models.Model):
 
 class Avaliacao(models.Model):
     PRIORIZACAO_CHOICES = [
-        ("Prioridade 1", "Strong Yes"),
-        ("Prioridade 2", "Yes"),
-        ("Não priorizar", "Não priorizar"),
+        ("Prioridade 1", "Prioridade 1"),
+        ("Prioridade 2", "Prioridade 2"),
+        ("Não Priorizar", "Não Priorizar"),
     ]
 
     aplicacao = models.ForeignKey(Aplicacao, on_delete=models.CASCADE, related_name="avaliacoes")
     nota_final = models.DecimalField(max_digits=5, decimal_places=2)
     avaliador = models.TextField(blank=True, null=True)
     comentario_final = models.TextField(blank=True, null=True)
-    priorizacao = models.TextField(choices=PRIORIZACAO_CHOICES, default="Não priorizar")
+    priorizacao = models.TextField(choices=PRIORIZACAO_CHOICES, default="Não Priorizar")
     gh_atualizada = models.BooleanField(default=False)
     finalizada = models.BooleanField(default=False)
     data_avaliacao = models.DateTimeField(auto_now=True)

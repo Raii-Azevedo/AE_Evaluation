@@ -92,10 +92,8 @@
       <label>Priorização</label>
       <div style="margin-top:4px;">
         {% with p=avaliacao.priorizacao %}
-          {% if p == 'Strong Yes' %}<span class="badge badge-green">{{ p }}</span>
-          {% elif p == 'Yes' %}<span class="badge badge-blue">{{ p }}</span>
-          {% elif p == 'Maybe' %}<span class="badge badge-yellow">{{ p }}</span>
-          {% elif p == 'No' %}<span class="badge badge-red">{{ p }}</span>
+          {% if p == 'Prioridade 1' %}<span class="badge badge-green">{{ p }}</span>
+          {% elif p == 'Prioridade 2' %}<span class="badge badge-blue">{{ p }}</span>
           {% else %}<span class="badge badge-gray">{{ p }}</span>
           {% endif %}
         {% endwith %}
