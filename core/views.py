@@ -257,6 +257,7 @@ def avaliar_aplicacao(request, aplicacao_id):
                     "bloco": bloco,
                     "bloco_index": bloco_index,
                     "criterio": item["criterio"],
+                    "descricao": item.get("descricao", ""),
                     "peso": item["peso"],
                     "field_nota": f"nota_{bloco_index}_{criterio_index}",
                     "default_nota": existing.nota if existing else Decimal("5.0"),

@@ -52,19 +52,21 @@
 
   {% for c in criterios %}
   <div class="criterio-row" style="cursor:default;">
-    <div class="criterio-title">
-      <span>{{ c.criterio }}</span>
-      <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:16px;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:13px;font-weight:700;color:rgba(255,255,255,0.95);margin-bottom:3px;">{{ c.criterio }}</div>
+      </div>
+      <div style="flex-shrink:0;text-align:center;min-width:60px;">
         {% with nota=c.nota %}
           {% if nota >= 7 %}
-            <span style="font-size:18px;font-weight:800;" class="score-high">{{ nota }}</span>
+            <span style="font-size:20px;font-weight:800;" class="score-high">{{ nota }}</span>
           {% elif nota >= 5 %}
-            <span style="font-size:18px;font-weight:800;" class="score-mid">{{ nota }}</span>
+            <span style="font-size:20px;font-weight:800;" class="score-mid">{{ nota }}</span>
           {% else %}
-            <span style="font-size:18px;font-weight:800;" class="score-low">{{ nota }}</span>
+            <span style="font-size:20px;font-weight:800;" class="score-low">{{ nota }}</span>
           {% endif %}
         {% endwith %}
-        <span style="font-size:11px;color:rgba(255,255,255,0.3);">/ 10</span>
+        <div style="font-size:10px;color:var(--text-faint);">/ 10</div>
       </div>
     </div>
   </div>
